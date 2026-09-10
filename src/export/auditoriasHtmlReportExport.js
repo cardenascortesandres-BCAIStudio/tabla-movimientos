@@ -5,7 +5,7 @@
 // comparando % de cumplimiento del checklist en vez de margen/utilidad.
 
 import { AUDIT_BLOCKS } from '../data/auditChecklist.js';
-import { CHART_DOWNLOAD_JS } from '../theme/chartDownloadPlugin.js';
+import { CHART_DOWNLOAD_JS, CHART_GLOW_JS } from '../theme/chartDownloadPlugin.js';
 
 export function buildAuditoriasReportHtml(rawAuditRows, chartJsSource, meta) {
   const rawAudits = (rawAuditRows || []).map(a => ({
@@ -89,6 +89,7 @@ ${chartJsSource}
 </script>
 <script>
 ${CHART_DOWNLOAD_JS}
+${CHART_GLOW_JS}
 const RAW_AUDITS = ${dataJson};
 const AUDIT_BLOCKS = ${blocksJson};
 ${AGG_JS}

@@ -225,6 +225,8 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   border-radius:var(--dv-radius);padding:16px 18px;position:relative;overflow:hidden;
 }
 .kpi-card::before{content:'';position:absolute;top:-30%;right:-30%;width:80px;height:80px;background:radial-gradient(circle,var(--dv-glow),transparent 70%);}
+.kpi-card{transition:box-shadow .15s,transform .15s;}
+.kpi-card:hover{box-shadow:0 0 0 1px var(--dv-chart-pos),0 0 22px 4px var(--dv-glow);transform:translateY(-1px);}
 .kpi-card.kpi-neg{border-color:var(--dv-glow-neg);}
 .kpi-card.kpi-neg::before{background:radial-gradient(circle,var(--dv-glow-neg),transparent 70%);}
 .kpi-card.kpi-pos{border-color:var(--dv-glow-pos);}
@@ -261,6 +263,8 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   border-radius:20px;padding:6px 14px;font-size:12.5px;cursor:pointer;user-select:none;font-family:var(--font);
 }
 .sede-chip.active{color:var(--dv-text);border-color:var(--dv-chart-pos);background:linear-gradient(160deg,var(--dv-card-bg),var(--dv-card-bg2));}
+.period-chip-row{flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;}
+.period-chip-row .sede-chip{flex:0 0 auto;}
 .dash-filters{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
 .dash-filters select{
   background:var(--dv-select-bg);color:var(--dv-text);border:1px solid var(--dv-select-border);border-radius:7px;

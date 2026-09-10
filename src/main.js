@@ -10,8 +10,9 @@ import './styles/main.css';
 
 import * as XLSX from 'xlsx';
 import Chart from 'chart.js/auto';
-import { registerChartDownloadPlugin } from './theme/chartDownloadPlugin.js';
+import { registerChartDownloadPlugin, registerChartGlowPlugin } from './theme/chartDownloadPlugin.js';
 registerChartDownloadPlugin(Chart);
+registerChartGlowPlugin(Chart);
 import { SEDE_PALETTE, colorForSedeIndex } from './theme/sedePalette.js';
 // Import "?raw" de Vite: incrusta el TEXTO del archivo como string en tiempo de
 // build (no una URL). Es lo que necesitamos para pegarlo dentro de un <script>
@@ -745,6 +746,7 @@ async function downloadBalanceReport() {
 // ---------------- Reportes ----------------
 let reportesWeeks = null; // filas crudas de balance_weeks (todas las sedes), cargadas una vez por visita
 let chartReportesMargen, chartReportesUtilidad;
+let reportesSelectedPeriods = null; // Set<periodKey> | null (null = todos los periodos disponibles)
 
 async function loadReportesData() {
   el('reportesView').classList.add('hidden-block');
@@ -806,24 +808,35 @@ function renderReportes() {
   if (allSedeNames.includes(prevSede)) sedeSel.value = prevSede;
   const sedeFilter = sedeSel.value;
 
+  // Venta real (ventas_dias), mismo alcance de sede/granularidad. "Ventas"
+  // usa su PROPIO calendario (llega al día, a diferencia de Balance que solo
+  // tiene semanas ya cerradas) — por eso el listado de periodos a comparar
+  // sale de ventaData cuando metric==='venta', y de data en cualquier otro caso.
+  const ventaRows = sedeFilter ? (ventasAllDias || []).filter(d => d.sede_name === sedeFilter) : (ventasAllDias || []);
+  const ventaData = aggregateVentByPeriod(ventaRows, granularity);
+
+  const allPeriodKeys = metric === 'venta' ? ventaData.periodKeysSorted : data.periodKeysSorted;
+  const periodLabelOf = (k) => metric === 'venta'
+    ? ((ventaData.byPeriod.get(k) || [])[0]?.periodLabel || k)
+    : ((data.byPeriod.get(k) || [])[0]?.periodLabel || k);
+  renderReportesPeriodChips(allPeriodKeys, periodLabelOf, granularity);
+  const selectedSet = reportesSelectedPeriods || new Set(allPeriodKeys);
+  const periodKeysInScope = allPeriodKeys.filter(k => selectedSet.has(k));
+
+  const GRAN_LABEL = { week: 'semana', month: 'mes', year: 'año' };
+  const lastPeriod = periodKeysInScope[periodKeysInScope.length - 1];
+  const lastIdxFull = allPeriodKeys.indexOf(lastPeriod);
+  const prevPeriod = lastIdxFull > 0 ? allPeriodKeys[lastIdxFull - 1] : null;
+
   const allPoints = Array.from(data.bySede.values()).flat().filter(p => !sedeFilter || p.sedeName === sedeFilter);
-  const lastPeriod = data.periodKeysSorted[data.periodKeysSorted.length - 1];
   const lastPoints = allPoints.filter(p => p.periodKey === lastPeriod);
   const lastVentasBalance = lastPoints.reduce((a, p) => a + p.totalVentas, 0);
   const lastUtilidad = lastPoints.reduce((a, p) => a + p.utilidadBruta, 0);
   const lastMargen = lastVentasBalance === 0 ? 0 : lastUtilidad / lastVentasBalance;
-  const acumUtilidad = allPoints.reduce((a, p) => a + p.utilidadBruta, 0);
-  const GRAN_LABEL = { week: 'semana', month: 'mes', year: 'año' };
+  const scopeUtilidad = allPoints.filter(p => periodKeysInScope.includes(p.periodKey)).reduce((a, p) => a + p.utilidadBruta, 0);
 
-  // Venta real (ventas_dias), mismo alcance sede/granularidad — se calcula
-  // siempre (no solo cuando metric==='venta') para poder mostrarla de
-  // respaldo en el KPI de margen/utilidad también.
-  const ventaRows = sedeFilter ? (ventasAllDias || []).filter(d => d.sede_name === sedeFilter) : (ventasAllDias || []);
-  const ventaData = aggregateVentByPeriod(ventaRows, granularity);
-  const ventaLastPeriod = ventaData.periodKeysSorted[ventaData.periodKeysSorted.length - 1];
-  const ventaPrevPeriod = ventaData.periodKeysSorted[ventaData.periodKeysSorted.length - 2];
-  const ventaLastPoints = Array.from(ventaData.bySede.values()).flat().filter(p => p.periodKey === ventaLastPeriod);
-  const ventaPrevPoints = ventaPrevPeriod ? Array.from(ventaData.bySede.values()).flat().filter(p => p.periodKey === ventaPrevPeriod) : [];
+  const ventaLastPoints = Array.from(ventaData.bySede.values()).flat().filter(p => p.periodKey === lastPeriod);
+  const ventaPrevPoints = prevPeriod ? Array.from(ventaData.bySede.values()).flat().filter(p => p.periodKey === prevPeriod) : [];
   const ventaLastValue = ventaLastPoints.reduce((a, p) => a + p.valorVenta, 0);
   const ventaPrevValue = ventaPrevPoints.reduce((a, p) => a + p.valorVenta, 0);
   const ventaCrecimiento = ventaPrevValue > 0 ? (ventaLastValue - ventaPrevValue) / ventaPrevValue : null;
@@ -841,69 +854,144 @@ function renderReportes() {
       <div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">${reportesWeeks.length}</div></div>
       <div class="kpi-card ${lastMargen < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Margen — último ${GRAN_LABEL[granularity]}</div><div class="kpi-value">${fmtPct(lastMargen)}</div></div>
       <div class="kpi-card ${lastUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad — último ${GRAN_LABEL[granularity]}</div><div class="kpi-value">${fmtCOP(lastUtilidad)}</div></div>
-      <div class="kpi-card ${acumUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad acumulada (histórico visible)</div><div class="kpi-value">${fmtCOP(acumUtilidad)}</div></div>`;
+      <div class="kpi-card ${scopeUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad acumulada (periodos seleccionados)</div><div class="kpi-value">${fmtCOP(scopeUtilidad)}</div></div>`;
   }
 
-  renderReportesCharts(metric, data, ventaData, sedeFilter);
-  renderReportesTable(data, sedeFilter);
+  renderReportesCharts(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf);
+  renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
 }
 
-// Normaliza la métrica elegida a {label, periodKeysSorted, seriesBySede}
-// (Map sedeName -> Map periodKey -> valor) para que el resto del render sea
-// el mismo sin importar si la fuente es balance_weeks o ventas_dias.
+// Chips para elegir QUÉ periodos entran en la comparación (por defecto,
+// todos). A pedido explícito del usuario: en "Mensual" debe poder elegir
+// solo algunos meses; al dejar una sola semana seleccionada, el gráfico de
+// tiempo hace drill-down a los días de esa semana (ver renderReportesCharts).
+function renderReportesPeriodChips(periodKeys, periodLabelOf, granularity) {
+  const box = el('reportesPeriodChips');
+  box.innerHTML = periodKeys.map(k =>
+    `<button type="button" class="sede-chip ${!reportesSelectedPeriods || reportesSelectedPeriods.has(k) ? 'active' : ''}" data-period="${escapeHtml(k)}">${escapeHtml(periodLabelOf(k))}</button>`
+  ).join('');
+  box.querySelectorAll('.sede-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      if (!reportesSelectedPeriods) reportesSelectedPeriods = new Set(periodKeys);
+      const k = chip.dataset.period;
+      if (reportesSelectedPeriods.has(k)) {
+        if (reportesSelectedPeriods.size > 1) reportesSelectedPeriods.delete(k); // no permitir dejar 0 periodos
+      } else {
+        reportesSelectedPeriods.add(k);
+      }
+      if (reportesSelectedPeriods.size === periodKeys.length) reportesSelectedPeriods = null; // "todos" implícito
+      renderReportes();
+    });
+  });
+  const n = reportesSelectedPeriods ? reportesSelectedPeriods.size : periodKeys.length;
+  el('reportesPeriodHint').textContent = (granularity === 'week' && n === 1)
+    ? '📅 Semana específica — "en el tiempo" muestra el detalle día a día (solo con la métrica Ventas).'
+    : '';
+}
+
+// Normaliza la métrica elegida a {seriesBySede} (Map sedeName -> Map
+// periodKey -> valor) para que el resto del render sea el mismo sin importar
+// si la fuente es balance_weeks o ventas_dias.
 function reportesMetricSeries(metric, data, ventaData) {
-  if (metric === 'venta') {
-    const seriesBySede = new Map();
-    ventaData.bySede.forEach((points, sedeName) => seriesBySede.set(sedeName, new Map(points.map(p => [p.periodKey, p.valorVenta]))));
-    return { periodKeysSorted: ventaData.periodKeysSorted, periodLabelOf: k => (ventaData.byPeriod.get(k) || [])[0]?.periodLabel || k, seriesBySede };
-  }
   const seriesBySede = new Map();
-  data.bySede.forEach((points, sedeName) => seriesBySede.set(sedeName, new Map(points.map(p => [p.periodKey, p[metric]]))));
-  return { periodKeysSorted: data.periodKeysSorted, periodLabelOf: k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k, seriesBySede };
+  if (metric === 'venta') {
+    ventaData.bySede.forEach((points, sedeName) => seriesBySede.set(sedeName, new Map(points.map(p => [p.periodKey, p.valorVenta]))));
+  } else {
+    data.bySede.forEach((points, sedeName) => seriesBySede.set(sedeName, new Map(points.map(p => [p.periodKey, p[metric]]))));
+  }
+  return { seriesBySede };
 }
 
-function renderReportesCharts(metric, data, ventaData, sedeFilter) {
+function renderReportesCharts(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf) {
   const palette = SEDE_PALETTE;
-  const { periodKeysSorted, periodLabelOf, seriesBySede } = reportesMetricSeries(metric, data, ventaData);
+  const { seriesBySede } = reportesMetricSeries(metric, data, ventaData);
   const sedeNames = sedeFilter ? [sedeFilter] : Array.from(seriesBySede.keys());
-  const labels = periodKeysSorted.map(periodLabelOf);
   const metricLabel = REPORTES_METRIC_LABELS[metric];
   const isPercentMetric = metric === 'margenPct';
   const valueFmt = isPercentMetric ? fmtPct : fmtCOP;
+  const singlePeriod = periodKeysInScope.length === 1 ? periodKeysInScope[0] : null;
 
+  // ---- "... en el tiempo": drill-down a días cuando hay UNA sola semana
+  // seleccionada y la métrica es Ventas (es la única con datos diarios reales) ----
   if (chartReportesMargen) chartReportesMargen.destroy();
-  const tiempoDatasets = sedeNames.map((sedeName, i) => {
-    const byPeriod = seriesBySede.get(sedeName) || new Map();
-    return { label: sedeName, data: periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
-  });
-  const tiempoOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesView', valueFmt);
-  tiempoOpts.plugins.legend.display = tiempoDatasets.length > 1;
-  chartReportesMargen = new Chart(el('chartReportesMargen').getContext('2d'), { type: 'line', data: { labels, datasets: tiempoDatasets }, options: tiempoOpts });
+  if (metric === 'venta' && granularity === 'week' && singlePeriod) {
+    const dias = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(singlePeriod + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + i);
+      dias.push(d.toISOString().slice(0, 10));
+    }
+    const rows = sedeFilter ? (ventasAllDias || []).filter(r => r.sede_name === sedeFilter) : (ventasAllDias || []);
+    const datasets = sedeNames.map((sedeName, i) => {
+      const byFecha = new Map(rows.filter(r => r.sede_name === sedeName).map(r => [String(r.fecha).slice(0, 10), Number(r.valor_venta)]));
+      return { label: sedeName, data: dias.map(f => byFecha.has(f) ? byFecha.get(f) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
+    });
+    const DIAS_SEMANA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+    const diaLabels = dias.map(f => { const d = new Date(f + 'T00:00:00Z'); return DIAS_SEMANA[d.getUTCDay()] + ' ' + String(d.getUTCDate()).padStart(2, '0'); });
+    const opts = dashboardChartOptions('Ventas por día — semana del ' + (periodLabelOf(singlePeriod) || singlePeriod), 'reportesView', valueFmt);
+    opts.plugins.legend.display = datasets.length > 1;
+    chartReportesMargen = new Chart(el('chartReportesMargen').getContext('2d'), { type: 'line', data: { labels: diaLabels, datasets }, options: opts });
+  } else {
+    const labels = periodKeysInScope.map(periodLabelOf);
+    const tiempoDatasets = sedeNames.map((sedeName, i) => {
+      const byPeriod = seriesBySede.get(sedeName) || new Map();
+      return { label: sedeName, data: periodKeysInScope.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
+    });
+    const tiempoOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesView', valueFmt);
+    tiempoOpts.plugins.legend.display = tiempoDatasets.length > 1;
+    chartReportesMargen = new Chart(el('chartReportesMargen').getContext('2d'), { type: 'line', data: { labels, datasets: tiempoDatasets }, options: tiempoOpts });
+  }
 
+  // ---- "Comparativa entre sedes": suma (o margen ponderado) de los periodos
+  // seleccionados, ordenado de mayor a menor ----
   if (chartReportesUtilidad) chartReportesUtilidad.destroy();
-  const lastPeriod = periodKeysSorted[periodKeysSorted.length - 1];
-  const bySedeTotals = sedeNames.map(sedeName => [sedeName, (seriesBySede.get(sedeName) || new Map()).get(lastPeriod) || 0]);
-  // Para % no tiene sentido "acumular" — se muestra el último periodo por
-  // sede (comparativo); para montos (utilidad/venta) se acumula todo el
-  // histórico visible, igual que antes.
-  const barValues = isPercentMetric ? bySedeTotals.map(([, v]) => v) : sedeNames.map(sedeName => Array.from((seriesBySede.get(sedeName) || new Map()).values()).reduce((a, v) => a + (v || 0), 0));
-  const barTitle = isPercentMetric ? metricLabel + ' — ' + (periodLabelOf(lastPeriod) || lastPeriod) : metricLabel + ' acumulada por sede';
-  // Un color por sede (no rojo/verde por signo) — el objetivo de este
-  // gráfico es distinguir SEDES entre sí, no si el valor es positivo/negativo.
-  const barColors = sedeNames.map((_, i) => palette[i % palette.length]);
+  let barPairs;
+  if (isPercentMetric) {
+    // Margen ponderado (utilidad total / venta total) — promediar el % de
+    // cada periodo directamente sería matemáticamente incorrecto (mismo
+    // criterio que aggregateByPeriod en balanceDashboardData.js).
+    const rawPoints = Array.from(data.bySede.entries()).flatMap(([sedeName, points]) => points.filter(p => periodKeysInScope.includes(p.periodKey)).map(p => ({ ...p, sedeName })));
+    barPairs = sedeNames.map(sedeName => {
+      const pts = rawPoints.filter(p => p.sedeName === sedeName);
+      const totalVentas = pts.reduce((a, p) => a + p.totalVentas, 0);
+      const totalUtilidad = pts.reduce((a, p) => a + p.utilidadBruta, 0);
+      return [sedeName, totalVentas === 0 ? 0 : totalUtilidad / totalVentas];
+    });
+  } else {
+    barPairs = sedeNames.map(sedeName => {
+      const byPeriod = seriesBySede.get(sedeName) || new Map();
+      return [sedeName, periodKeysInScope.reduce((a, k) => a + (byPeriod.get(k) || 0), 0)];
+    });
+  }
+  barPairs.sort((a, b) => b[1] - a[1]); // descendente: el mejor resultado primero (izquierda)
+  const barLabels = barPairs.map(([s]) => s);
+  const barValues = barPairs.map(([, v]) => v);
+  // Un color por sede (no rojo/verde por signo, y el mismo color que en el
+  // gráfico de tiempo) — el objetivo de este gráfico es distinguir SEDES
+  // entre sí, no si el valor es positivo/negativo.
+  const barColors = barLabels.map(sedeName => palette[sedeNames.indexOf(sedeName) % palette.length]);
+  const scopeLabel = singlePeriod ? (periodLabelOf(singlePeriod) || singlePeriod) : periodKeysInScope.length + ' periodo(s) seleccionado(s)';
   chartReportesUtilidad = new Chart(el('chartReportesUtilidad').getContext('2d'), {
-    type: 'bar', data: { labels: sedeNames, datasets: [{ data: barValues, backgroundColor: barColors, borderRadius: 6 }] },
-    options: Object.assign(dashboardChartOptions(barTitle, 'reportesView', valueFmt), { indexAxis: 'y' })
+    type: 'bar', data: { labels: barLabels, datasets: [{ data: barValues, backgroundColor: barColors, borderRadius: 6 }] },
+    options: Object.assign(dashboardChartOptions(metricLabel + ' — ' + scopeLabel, 'reportesView', valueFmt), { indexAxis: 'y' })
   });
 }
 
-function renderReportesTable(data, sedeFilter) {
-  let rows = Array.from(data.bySede.values()).flat();
+function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope) {
+  let rows;
+  if (metric === 'venta') {
+    // Ventas reales no traen Utilidad/Margen propios (esos son de Balance) —
+    // se muestran en blanco en vez de inventar un cruce que no corresponde.
+    rows = Array.from(ventaData.bySede.entries()).flatMap(([sedeName, points]) =>
+      points.map(p => ({ sedeName, periodKey: p.periodKey, periodLabel: p.periodLabel, totalVentas: p.valorVenta, utilidadBruta: null, margenPct: null })));
+  } else {
+    rows = Array.from(data.bySede.values()).flat();
+  }
   if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
+  rows = rows.filter(r => periodKeysInScope.includes(r.periodKey));
   rows = rows.slice().sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
   el('reportesTableBody').innerHTML = rows.map(r => {
-    const cls = r.utilidadBruta < 0 ? 'diff-neg' : (Math.abs(r.utilidadBruta) < 0.01 ? 'diff-zero' : '');
-    return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmtCOP(r.totalVentas)}</td><td class="${cls}">${fmtCOP(r.utilidadBruta)}</td><td>${fmtPct(r.margenPct)}</td></tr>`;
+    const cls = r.utilidadBruta == null ? '' : (r.utilidadBruta < 0 ? 'diff-neg' : (Math.abs(r.utilidadBruta) < 0.01 ? 'diff-zero' : ''));
+    return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmtCOP(r.totalVentas)}</td><td class="${cls}">${r.utilidadBruta == null ? '—' : fmtCOP(r.utilidadBruta)}</td><td>${r.margenPct == null ? '—' : fmtPct(r.margenPct)}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="left hint">Sin datos para este filtro.</td></tr>';
 }
 
@@ -1563,8 +1651,8 @@ el('balanceDownloadReportBtn').addEventListener('click', downloadBalanceReport);
 
 el('modeReportesBtn').addEventListener('click', () => switchFlow('reportes'));
 el('backFromReportesBtn').addEventListener('click', () => switchFlow('choice'));
-el('reportesMetrica').addEventListener('change', renderReportes);
-el('reportesGranularity').addEventListener('change', renderReportes);
+el('reportesMetrica').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
+el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
 el('reportesSedeFilter').addEventListener('change', renderReportes);
 el('reportesDownloadBtn').addEventListener('click', downloadReportesReport);
 

@@ -9,7 +9,7 @@
 // fuente del bundle ya leído (ver buildViewerHtml) para quedar 100% offline,
 // igual que hace el sistema principal.
 
-import { CHART_DOWNLOAD_JS } from '../theme/chartDownloadPlugin.js';
+import { CHART_DOWNLOAD_JS, CHART_GLOW_JS } from '../theme/chartDownloadPlugin.js';
 
 export function buildInteractiveReportHtml(dashboardDataSerialized, chartJsSource, meta) {
   const dataJson = JSON.stringify(dashboardDataSerialized);
@@ -87,6 +87,7 @@ ${chartJsSource}
 </script>
 <script>
 ${CHART_DOWNLOAD_JS}
+${CHART_GLOW_JS}
 const DASH_DATA = ${dataJson};
 ${VIEWER_JS}
 </script>

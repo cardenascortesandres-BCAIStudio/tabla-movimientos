@@ -9,7 +9,7 @@
 // HTML exportado (ver AGG_JS) — así el mismo archivo, ya descargado y sin
 // conexión, deja cambiar de granularidad sin tener que volver a generarlo.
 
-import { CHART_DOWNLOAD_JS } from '../theme/chartDownloadPlugin.js';
+import { CHART_DOWNLOAD_JS, CHART_GLOW_JS } from '../theme/chartDownloadPlugin.js';
 import { SEDE_PALETTE_JS } from '../theme/sedePalette.js';
 
 export function buildBalanceReportHtml(rawWeekRows, chartJsSource, meta) {
@@ -98,6 +98,7 @@ ${chartJsSource}
 </script>
 <script>
 ${CHART_DOWNLOAD_JS}
+${CHART_GLOW_JS}
 ${SEDE_PALETTE_JS}
 const RAW_WEEKS = ${dataJson};
 ${AGG_JS}
