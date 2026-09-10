@@ -10,6 +10,7 @@
 // conexión, deja cambiar de granularidad sin tener que volver a generarlo.
 
 import { CHART_DOWNLOAD_JS } from '../theme/chartDownloadPlugin.js';
+import { SEDE_PALETTE_JS } from '../theme/sedePalette.js';
 
 export function buildBalanceReportHtml(rawWeekRows, chartJsSource, meta) {
   const rawWeeks = (rawWeekRows || []).map(w => ({
@@ -71,7 +72,6 @@ ${VIEWER_CSS}
       <option value="margenPct">Margen %</option>
       <option value="utilidadBruta">Utilidad Bruta</option>
       <option value="totalVentas">Total Ventas</option>
-      <option value="totalCompras">Total Compras</option>
     </select>
     <select id="filterSede"></select>
     <select id="filterPeriodo"></select>
@@ -83,7 +83,7 @@ ${VIEWER_CSS}
     <table class="dtable" id="rankingTable">
       <thead><tr>
         <th class="left" data-sort="sedeName">Sede</th><th class="left" data-sort="periodKey">Periodo</th>
-        <th data-sort="totalVentas">Ventas</th><th data-sort="totalCompras">Compras</th>
+        <th data-sort="totalVentas">Ventas</th>
         <th data-sort="utilidadBruta">Utilidad Bruta</th><th data-sort="margenPct">Margen %</th>
       </tr></thead>
       <tbody id="rankingBody"></tbody>
@@ -98,6 +98,7 @@ ${chartJsSource}
 </script>
 <script>
 ${CHART_DOWNLOAD_JS}
+${SEDE_PALETTE_JS}
 const RAW_WEEKS = ${dataJson};
 ${AGG_JS}
 ${VIEWER_JS}
@@ -207,7 +208,7 @@ function fmtCOP(v){ if(v==null||isNaN(v)) return '$0'; return '$' + Math.round(v
 function fmtPct(v){ return (Math.round(v*1000)/10).toFixed(1)+'%'; }
 function el(id){ return document.getElementById(id); }
 
-const METRIC_LABELS = { margenPct: 'Margen %', utilidadBruta: 'Utilidad Bruta', totalVentas: 'Total Ventas', totalCompras: 'Total Compras' };
+const METRIC_LABELS = { margenPct: 'Margen %', utilidadBruta: 'Utilidad Bruta', totalVentas: 'Total Ventas' };
 const GRAN_LABELS = { week: 'semana', month: 'mes', year: 'año' };
 
 const ACCENTS = ['#3ea8ff','#2be3a8','#ff3b6e','#f0b429','#a86bff','#ff8a3d'];
@@ -289,15 +290,24 @@ function refreshSedeOptions(){
 function currentAccent(){ return getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#3ea8ff'; }
 function colorFor(v){ return v < 0 ? '#ff3b6e' : (Math.abs(v) < 0.0001 ? '#2be3a8' : currentAccent()); }
 
-function chartOptions(title, indexAxis){
+function chartOptions(title, indexAxis, tooltipFormatter){
   const textColor = document.body.classList.contains('theme-light') ? '#1b2033' : '#eaf0ff';
   const gridColor = document.body.classList.contains('theme-light') ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.06)';
-  return {
+  const opts = {
     responsive: true, maintainAspectRatio: false, indexAxis: indexAxis || 'x',
     plugins: { legend: { display: false }, title: { display: true, text: title, color: textColor } },
     scales: { x: { ticks: { color: textColor }, grid: { color: gridColor } }, y: { ticks: { color: textColor }, grid: { color: gridColor } } }
   };
+  if (tooltipFormatter) {
+    opts.plugins.tooltip = { callbacks: { label: (ctx) => {
+      const v = ctx.parsed.y != null ? ctx.parsed.y : ctx.parsed.x;
+      const prefix = ctx.dataset.label && ctx.chart.data.datasets.length > 1 ? ctx.dataset.label + ': ' : '';
+      return prefix + tooltipFormatter(v);
+    } } };
+  }
+  return opts;
 }
+function metricFormatter(metric){ return metric === 'margenPct' ? fmtPct : fmtCOP; }
 
 function renderKpis(){
   const sedeFilter = el('filterSede').value;
@@ -325,13 +335,12 @@ function viewTiempo(){
   const sedeFilter = el('filterSede').value;
   const series = sedeFilter ? currentData.bySede.filter(s => s.sedeName === sedeFilter) : currentData.bySede;
   const labels = currentData.periodKeysSorted.map(k => (currentData.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
-  const palette = ['#3ea8ff','#2be3a8','#ff3b6e','#f0b429','#a86bff','#ff8a3d'];
   const datasets = series.map((s, i) => {
     const byPeriod = new Map(s.points.map(p => [p.periodKey, p[metric]]));
-    return { label: s.sedeName, data: currentData.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
+    return { label: s.sedeName, data: currentData.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: colorForSedeIndex(i), backgroundColor: colorForSedeIndex(i), spanGaps: true, tension: .25 };
   });
   const ctx = el('chartTiempo').getContext('2d');
-  const opts = chartOptions(METRIC_LABELS[metric] + ' por ' + GRAN_LABELS[currentData.granularity]);
+  const opts = chartOptions(METRIC_LABELS[metric] + ' por ' + GRAN_LABELS[currentData.granularity], null, metricFormatter(metric));
   opts.plugins.legend.display = series.length > 1;
   charts.tiempo = new Chart(ctx, { type: 'line', data: { labels, datasets }, options: opts });
 }
@@ -345,7 +354,9 @@ function viewSedes(){
   const values = rows.map(r => r[metric]);
   const label = (rows[0] || {}).periodLabel || period;
   const ctx = el('chartSedes').getContext('2d');
-  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: values.map(colorFor), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + label) });
+  // Un color por sede (no rojo/verde por signo) — el objetivo de esta vista
+  // es distinguir sedes entre sí, no si el valor es positivo/negativo.
+  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map((_, i) => colorForSedeIndex(i)), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + label, null, metricFormatter(metric)) });
 }
 
 let sortState = { key: 'periodKey', dir: -1 };
@@ -360,8 +371,8 @@ function viewRanking(){
   });
   el('rankingBody').innerHTML = rows.map(r => {
     const cls = r.utilidadBruta < 0 ? 'diff-neg' : (Math.abs(r.utilidadBruta) < 0.01 ? 'diff-zero' : '');
-    return '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.totalVentas) + '</td><td>' + fmtCOP(r.totalCompras) + '</td><td class="' + cls + '">' + fmtCOP(r.utilidadBruta) + '</td><td>' + fmtPct(r.margenPct) + '</td></tr>';
-  }).join('') || '<tr><td colspan="6" class="left">Sin semanas guardadas todavía.</td></tr>';
+    return '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.totalVentas) + '</td><td class="' + cls + '">' + fmtCOP(r.utilidadBruta) + '</td><td>' + fmtPct(r.margenPct) + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="left">Sin semanas guardadas todavía.</td></tr>';
 }
 
 function initSort(){

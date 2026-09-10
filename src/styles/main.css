@@ -135,6 +135,18 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 @media (max-width:640px){.brand-hero-main{flex-wrap:wrap;}}
 
 .back-btn{margin-bottom:14px;}
+.reportes-top-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;}
+.reportes-top-row .back-btn{margin-bottom:0;}
+
+/* ---- Efecto de brillo al pasar el mouse, en los botones del panel oscuro ---- */
+#dashboardView button:not(.chart-dl-btn):hover, #reportesView button:not(.chart-dl-btn):hover,
+#reportesMovView button:not(.chart-dl-btn):hover, #reportesAudView button:not(.chart-dl-btn):hover,
+#reportesVentView button:not(.chart-dl-btn):hover, #balanceResultsView button:not(.chart-dl-btn):hover,
+.tab-btn:hover, .sede-chip:hover, #themeModeToggleBtn:hover{
+  box-shadow:0 0 0 3px var(--dv-glow, rgba(62,168,255,.35)), 0 0 14px 2px var(--dv-glow, rgba(62,168,255,.35));
+  transition:box-shadow .15s;
+}
+.chart-dl-btn:hover{box-shadow:0 0 8px 2px var(--dv-glow, rgba(62,168,255,.4));}
 
 /* ---- Multi-sede cards ---- */
 .sede-card{border:1px solid var(--gris-2);border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fbfbfc;}

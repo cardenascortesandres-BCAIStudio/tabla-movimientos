@@ -227,7 +227,10 @@
   </div>
 
   <div id="reportesFlow" class="hidden-block">
-    <button type="button" class="btn-secondary back-btn" id="backFromReportesBtn">‹ Volver al inicio</button>
+    <div class="reportes-top-row">
+      <button type="button" class="btn-secondary back-btn" id="backFromReportesBtn">‹ Volver al inicio</button>
+      <button type="button" class="btn-secondary" id="themeModeToggleBtn">🌙 Modo oscuro</button>
+    </div>
 
     <div class="tabs" id="reportesTypeTabs">
       <button class="tab-btn tab-active" id="reportesTypeBalanceBtn">📊 Balance</button>
@@ -270,7 +273,7 @@
           <div class="dash-table-title">Detalle por periodo</div>
           <div class="table-scroll">
             <table class="dash-table">
-              <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Ventas</th><th>Compras</th><th>Utilidad</th><th>Margen %</th></tr></thead>
+              <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Ventas</th><th>Utilidad</th><th>Margen %</th></tr></thead>
               <tbody id="reportesTableBody"></tbody>
             </table>
           </div>

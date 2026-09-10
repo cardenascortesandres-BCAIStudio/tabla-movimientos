@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx';
 import Chart from 'chart.js/auto';
 import { registerChartDownloadPlugin } from './theme/chartDownloadPlugin.js';
 registerChartDownloadPlugin(Chart);
+import { SEDE_PALETTE, colorForSedeIndex } from './theme/sedePalette.js';
 // Import "?raw" de Vite: incrusta el TEXTO del archivo como string en tiempo de
 // build (no una URL). Es lo que necesitamos para pegarlo dentro de un <script>
 // del informe HTML exportado, que debe quedar 100% autocontenido/offline.
@@ -376,10 +377,21 @@ function chartColors(values, scopeId) {
   const neg = dashVar('--dv-neg', scopeId), pos = dashVar('--dv-pos', scopeId), chartPos = dashVar('--dv-chart-pos', scopeId);
   return values.map(v => v < -0.01 ? neg : (Math.abs(v) < 0.01 ? pos : chartPos));
 }
-function dashboardChartOptions(title, scopeId) {
+// `tooltipFormatter(rawValue)` es opcional — sin ella, Chart.js muestra el
+// número crudo al pasar el mouse (ej. "0.183" en vez de "18,3%"), que fue
+// justo el reclamo del usuario en los gráficos de Margen %.
+function dashboardChartOptions(title, scopeId, tooltipFormatter) {
   const text = dashVar('--dv-text', scopeId), textMuted = dashVar('--dv-text-muted', scopeId), grid = dashVar('--dv-divider-soft', scopeId);
-  return { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, title: { display: true, text: title, color: text } },
+  const opts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, title: { display: true, text: title, color: text } },
     scales: { x: { ticks: { color: textMuted }, grid: { color: grid } }, y: { ticks: { color: textMuted }, grid: { color: grid } } } };
+  if (tooltipFormatter) {
+    opts.plugins.tooltip = { callbacks: { label: (ctx) => {
+      const v = ctx.parsed.y != null ? ctx.parsed.y : ctx.parsed.x;
+      const prefix = ctx.dataset.label && ctx.chart.data.datasets.length > 1 ? ctx.dataset.label + ': ' : '';
+      return prefix + tooltipFormatter(v);
+    } } };
+  }
+  return opts;
 }
 function renderSedeChart(data) {
   if (chartSede) chartSede.destroy();
@@ -851,33 +863,37 @@ function reportesMetricSeries(metric, data, ventaData) {
 }
 
 function renderReportesCharts(metric, data, ventaData, sedeFilter) {
-  const palette = [dashVar('--dv-chart-pos', 'reportesView'), dashVar('--dv-pos', 'reportesView'), dashVar('--dv-neg', 'reportesView'), '#f0b429', '#a86bff', '#ff8a3d'];
+  const palette = SEDE_PALETTE;
   const { periodKeysSorted, periodLabelOf, seriesBySede } = reportesMetricSeries(metric, data, ventaData);
   const sedeNames = sedeFilter ? [sedeFilter] : Array.from(seriesBySede.keys());
   const labels = periodKeysSorted.map(periodLabelOf);
   const metricLabel = REPORTES_METRIC_LABELS[metric];
+  const isPercentMetric = metric === 'margenPct';
+  const valueFmt = isPercentMetric ? fmtPct : fmtCOP;
 
   if (chartReportesMargen) chartReportesMargen.destroy();
   const tiempoDatasets = sedeNames.map((sedeName, i) => {
     const byPeriod = seriesBySede.get(sedeName) || new Map();
     return { label: sedeName, data: periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
   });
-  const tiempoOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesView');
+  const tiempoOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesView', valueFmt);
   tiempoOpts.plugins.legend.display = tiempoDatasets.length > 1;
   chartReportesMargen = new Chart(el('chartReportesMargen').getContext('2d'), { type: 'line', data: { labels, datasets: tiempoDatasets }, options: tiempoOpts });
 
   if (chartReportesUtilidad) chartReportesUtilidad.destroy();
   const lastPeriod = periodKeysSorted[periodKeysSorted.length - 1];
   const bySedeTotals = sedeNames.map(sedeName => [sedeName, (seriesBySede.get(sedeName) || new Map()).get(lastPeriod) || 0]);
-  const isPercentMetric = metric === 'margenPct';
   // Para % no tiene sentido "acumular" — se muestra el último periodo por
   // sede (comparativo); para montos (utilidad/venta) se acumula todo el
   // histórico visible, igual que antes.
   const barValues = isPercentMetric ? bySedeTotals.map(([, v]) => v) : sedeNames.map(sedeName => Array.from((seriesBySede.get(sedeName) || new Map()).values()).reduce((a, v) => a + (v || 0), 0));
   const barTitle = isPercentMetric ? metricLabel + ' — ' + (periodLabelOf(lastPeriod) || lastPeriod) : metricLabel + ' acumulada por sede';
+  // Un color por sede (no rojo/verde por signo) — el objetivo de este
+  // gráfico es distinguir SEDES entre sí, no si el valor es positivo/negativo.
+  const barColors = sedeNames.map((_, i) => palette[i % palette.length]);
   chartReportesUtilidad = new Chart(el('chartReportesUtilidad').getContext('2d'), {
-    type: 'bar', data: { labels: sedeNames, datasets: [{ data: barValues, backgroundColor: isPercentMetric ? chartColors(barValues, 'reportesView') : dashVar('--dv-chart-pos', 'reportesView'), borderRadius: 6 }] },
-    options: Object.assign(dashboardChartOptions(barTitle, 'reportesView'), { indexAxis: 'y' })
+    type: 'bar', data: { labels: sedeNames, datasets: [{ data: barValues, backgroundColor: barColors, borderRadius: 6 }] },
+    options: Object.assign(dashboardChartOptions(barTitle, 'reportesView', valueFmt), { indexAxis: 'y' })
   });
 }
 
@@ -887,8 +903,8 @@ function renderReportesTable(data, sedeFilter) {
   rows = rows.slice().sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
   el('reportesTableBody').innerHTML = rows.map(r => {
     const cls = r.utilidadBruta < 0 ? 'diff-neg' : (Math.abs(r.utilidadBruta) < 0.01 ? 'diff-zero' : '');
-    return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmtCOP(r.totalVentas)}</td><td>${fmtCOP(r.totalCompras)}</td><td class="${cls}">${fmtCOP(r.utilidadBruta)}</td><td>${fmtPct(r.margenPct)}</td></tr>`;
-  }).join('') || '<tr><td colspan="6" class="left hint">Sin datos para este filtro.</td></tr>';
+    return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmtCOP(r.totalVentas)}</td><td class="${cls}">${fmtCOP(r.utilidadBruta)}</td><td>${fmtPct(r.margenPct)}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="left hint">Sin datos para este filtro.</td></tr>';
 }
 
 async function downloadReportesReport() {
@@ -1067,7 +1083,7 @@ function renderMovHist() {
 function renderMovHistCharts(data, sedeFilter) {
   const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
   const labels = data.periodKeysSorted.map(k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k);
-  const palette = [dashVar('--dv-chart-pos', 'reportesMovView'), dashVar('--dv-pos', 'reportesMovView'), dashVar('--dv-neg', 'reportesMovView'), '#f0b429', '#a86bff', '#ff8a3d'];
+  const palette = SEDE_PALETTE;
 
   if (chartMovDiferencia) chartMovDiferencia.destroy();
   const diffDatasets = series.map(([sedeName, points], i) => {
@@ -1235,7 +1251,7 @@ function renderAudReportes() {
 function renderAudReportesCharts(data, sedeFilter) {
   const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
   const labels = data.periodKeysSorted.map(k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k);
-  const palette = [dashVar('--dv-chart-pos', 'reportesAudView'), dashVar('--dv-pos', 'reportesAudView'), dashVar('--dv-neg', 'reportesAudView'), '#f0b429', '#a86bff', '#ff8a3d'];
+  const palette = SEDE_PALETTE;
 
   if (chartAudCumplimiento) chartAudCumplimiento.destroy();
   const datasets = series.map(([sedeName, points], i) => {
@@ -1486,6 +1502,33 @@ function renderVentPresupuestoChart() {
   });
 }
 
+// ---------------- Modo claro/oscuro (paneles tipo dashboard) ----------------
+// Los 6 paneles con fondo oscuro ("estilo Power BI") son los únicos oscuros
+// de la app — el resto ya usa el tema claro "Sello de Calidad". Reusa las
+// variables --dv-* ya definidas para el estilo "minimalista" (blanco) en vez
+// de inventar un tema nuevo — ver el bloque de comentario en main.css sobre
+// los 5 estilos seleccionables del Panel comparativo.
+const DASH_STYLE_CONTAINER_IDS = ['dashboardView', 'balanceResultsView', 'reportesView', 'reportesMovView', 'reportesAudView', 'reportesVentView'];
+let themeMode = localStorage.getItem('themeMode') || 'dark';
+
+function applyThemeMode() {
+  const styleId = themeMode === 'light' ? 'minimalista' : app.dashStyleId;
+  DASH_STYLE_CONTAINER_IDS.forEach(id => { const node = el(id); if (node) node.dataset.dashStyle = styleId; });
+  const btn = el('themeModeToggleBtn');
+  if (btn) btn.textContent = themeMode === 'light' ? '☀️ Modo claro' : '🌙 Modo oscuro';
+  if (window.__dashData) { renderSedeChart(window.__dashData); renderCategoryChart(window.__dashData, el('filterSede').value); }
+  if (reportesWeeks) renderReportes();
+  if (movHistWeeks) renderMovHist();
+  if (audHistAudits) renderAudReportes();
+  if (ventasAllDias) renderVentPresupuestoChart();
+}
+
+function toggleThemeMode() {
+  themeMode = themeMode === 'light' ? 'dark' : 'light';
+  try { localStorage.setItem('themeMode', themeMode); } catch { /* almacenamiento no disponible: se ignora */ }
+  applyThemeMode();
+}
+
 // ---------------- Init ----------------
 // NOTA: los scripts type="module" siempre se ejecutan después de que el HTML
 // terminó de parsearse (misma garantía que un script "defer"), así que aquí
@@ -1550,6 +1593,8 @@ wireBalanceDropzone('ventDropzone', 'ventFileInput', handleVentFile);
 el('ventSaveBtn').addEventListener('click', saveVentDias);
 
 el('reportesTypeVentasBtn').addEventListener('click', () => switchReportesType('ventas'));
+el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
+applyThemeMode();
 wireBalanceDropzone('ventRepDropzone', 'ventRepFileInput', handleVentRepFile);
 el('ventRepSaveBtn').addEventListener('click', saveVentRepDias);
 
