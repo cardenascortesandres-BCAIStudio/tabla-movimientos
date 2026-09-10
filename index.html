@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rendimiento P.D.V. — Carnes Brangus</title>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand-hero">
+    <div class="header-row">
+      <div class="brand-hero-main">
+        <div class="brand-stamp">
+          <img id="brandStampLogo" class="brand-stamp-logo" alt="Carnes Brangus">
+        </div>
+        <div>
+          <h1>Rendimiento P.D.V.</h1>
+          <p class="subtitle">El rendimiento semanal de cada punto de venta, en un solo lugar: inventario, ventas, compras, margen y utilidad calculados automáticamente y guardados en un historial por sede — todo se procesa en este computador, ningún dato sale de aquí.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mode-choice" id="modeChoiceCard">
+    <h2 style="margin-top:0">¿Qué quieres generar?</h2>
+    <div class="mode-grid">
+      <button type="button" class="mode-option" id="modeBalanceBtn">
+        <span class="mode-eyebrow">📊 Nuevo</span>
+        <span class="mode-title">Balance Semanal</span>
+        <span class="mode-desc">Carga el reporte de Tecnocarnes de una sede y obtén su margen y utilidad de la semana, calculados y guardados en el historial.</span>
+      </button>
+      <div class="mode-divider" aria-hidden="true"></div>
+      <button type="button" class="mode-option" id="modeMovimientosBtn">
+        <span class="mode-eyebrow">📋 Ya disponible</span>
+        <span class="mode-title">Tabla de Movimientos</span>
+        <span class="mode-desc">Carga el Excel semanal de una o varias sedes y obtén el conteo por producto: Teórico, Disponible y Diferencia KL, listo para auditar.</span>
+      </button>
+      <div class="mode-divider" aria-hidden="true"></div>
+      <button type="button" class="mode-option" id="modeReportesBtn">
+        <span class="mode-eyebrow">📈 Nuevo</span>
+        <span class="mode-title">Reportes</span>
+        <span class="mode-desc">Evolución de margen y utilidad por sede — semanal, mensual y anual, con todo el histórico guardado.</span>
+      </button>
+      <div class="mode-divider" aria-hidden="true"></div>
+      <button type="button" class="mode-option" id="modeAuditoriasBtn">
+        <span class="mode-eyebrow">📋 Nuevo</span>
+        <span class="mode-title">Auditorías PDV</span>
+        <span class="mode-desc">Checklist de auditoría de punto de venta — presentación, limpieza, cadena de frío, infraestructura, normativo, inventario, operación y seguridad.</span>
+      </button>
+      <div class="mode-divider" aria-hidden="true"></div>
+      <button type="button" class="mode-option" id="modeVentasBtn">
+        <span class="mode-eyebrow">💰 Nuevo</span>
+        <span class="mode-title">Ventas Diarias</span>
+        <span class="mode-desc">Carga el reporte de ventas por día de una sede (se puede repetir a diario) para comparar venta, presupuesto y proyección entre puntos.</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="movimientosFlow" class="hidden-block">
+    <button type="button" class="btn-secondary back-btn" id="backFromMovimientosBtn">‹ Volver al inicio</button>
+
+    <div class="card">
+      <h2 style="margin-top:0">1. Cargar archivos (una o varias sedes)</h2>
+      <div class="dropzone" id="dropzone">
+        <p class="big">Arrastra aquí los Excel semanales (.xlsx / .xls)</p>
+        <p>Puedes soltar varios archivos a la vez — uno por cada sede</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('fileInput').click()">Seleccionar archivo(s)</button>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" multiple>
+      </div>
+      <div class="fields">
+        <div class="field">
+          <label>Periodo (aplica a todas las sedes cargadas)</label>
+          <input type="text" id="periodoInput" placeholder="Ej. 20 - 26 Julio 2026">
+        </div>
+      </div>
+      <div class="banner error hidden-block" id="errorBanner"></div>
+    </div>
+
+    <div class="card hidden-block" id="sedeListCard">
+      <h2 style="margin-top:0">2. Sedes cargadas</h2>
+      <p class="hint">Verifica el nombre de cada sede y resuelve las columnas pendientes de clasificar (si las hay) antes de generar el informe.</p>
+      <div id="sedeListBody"></div>
+    </div>
+
+    <div class="card" id="genCard">
+      <button class="btn-primary" id="genBtn" disabled>Generar informe consolidado</button>
+      <span class="hint" style="margin-left:10px">Se activa cuando todas las sedes cargadas estén listas.</span>
+    </div>
+
+    <div class="card hidden-block" id="reportCard">
+      <div class="tabs">
+        <button class="tab-btn tab-active" id="tabDetalleBtn">📋 Detalle por sede</button>
+        <button class="tab-btn" id="tabDashboardBtn">📊 Panel comparativo</button>
+        <div class="color-picker-inline">
+          <label for="templateSelect">Colores del cuadro</label>
+          <select id="templateSelect"></select>
+        </div>
+        <button class="btn-secondary" id="downloadAllBtn" style="margin-left:auto" disabled>⬇ Excel consolidado</button>
+      </div>
+
+      <div id="detalleView"></div>
+
+      <div id="dashboardView" class="hidden-block">
+        <div class="dash-header-row">
+          <div>
+            <div class="dash-title">Panel comparativo de diferencias</div>
+            <div class="dash-sub">Vista consolidada de todas las sedes cargadas.</div>
+          </div>
+          <select id="dashStyleSelect" class="dash-style-select"></select>
+        </div>
+        <div class="kpi-grid" id="kpiGrid"></div>
+        <div class="dash-table-title">Vista por bloque de categoría</div>
+        <div class="block-grid" id="blockGrid"></div>
+        <div class="dash-filters">
+          <select id="filterSede"></select>
+          <select id="filterCategoria"></select>
+        </div>
+        <div class="dash-charts">
+          <div class="chart-box"><canvas id="chartSede"></canvas></div>
+          <div class="chart-box"><canvas id="chartCategoria"></canvas></div>
+        </div>
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Productos con mayores diferencias</div>
+          <table class="dash-table">
+            <thead><tr><th class="left">Sede</th><th class="left">Categoría</th><th class="left">Código</th><th class="left">Producto</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+            <tbody id="topProductsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <p class="hint" style="margin-top:14px">Rojo = diferencia negativa (faltante). Verde = diferencia en cero. Los archivos exportados contienen fórmulas reales y colores idénticos a la pantalla.</p>
+    </div>
+  </div>
+
+  <div id="balanceFlow" class="hidden-block">
+    <button type="button" class="btn-secondary back-btn" id="backFromBalanceBtn">‹ Volver al inicio</button>
+
+    <div class="card">
+      <h2 style="margin-top:0">1. Cargar el archivo de la semana</h2>
+      <div class="fields">
+        <div class="field">
+          <label>Sede</label>
+          <input type="text" id="balanceSedeInput" placeholder="Ej. Decepaz">
+        </div>
+        <div class="field">
+          <label>Semana — inicio</label>
+          <input type="date" id="balanceWeekStartInput">
+        </div>
+        <div class="field">
+          <label>Semana — fin</label>
+          <input type="date" id="balanceWeekEndInput">
+        </div>
+      </div>
+      <div class="dropzone" id="balanceDropzoneA">
+        <p class="big">Movimiento por Grupo por Tipo de Documento (Tecnocarnes)</p>
+        <p>El .xls crudo que descargas de la plataforma — es el único archivo que necesitas</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('balanceFileAInput').click()">Seleccionar archivo</button>
+        <input type="file" id="balanceFileAInput" accept=".xlsx,.xls">
+        <p class="hint" id="balanceFileAName"></p>
+      </div>
+      <div class="banner error hidden-block" id="balanceErrorBanner"></div>
+    </div>
+
+    <div class="card hidden-block" id="balanceInvInicialCard">
+      <h2 style="margin-top:0">2. Sede nueva — Inventario Inicial</h2>
+      <p class="hint">No hay semanas guardadas todavía para esta sede, así que no se puede encadenar automáticamente. Escribe el Inventario Inicial de esta primera semana (de ahí en adelante, la herramienta lo calcula sola cada semana a partir del Inventario Final anterior).</p>
+      <div class="fields">
+        <div class="field">
+          <label>Inventario Inicial ($)</label>
+          <input type="text" inputmode="decimal" id="balanceInvInicialInput" placeholder="Ej. 38.254.366,8 o 38254366.8">
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden-block" id="balanceReviewCard">
+      <h2 style="margin-top:0">3. Revisar clasificación</h2>
+      <p class="hint">Confirma o corrige a qué balde pertenece cada tipo de documento nuevo para esta sede. Las etiquetas ya conocidas no vuelven a preguntarse.</p>
+      <div id="balanceReviewBody"></div>
+    </div>
+
+    <div class="card" id="balanceGenCard">
+      <button class="btn-primary" id="balanceGenBtn" disabled>Calcular balance</button>
+      <span class="hint" style="margin-left:10px" id="balanceGenHint">Se activa cuando el archivo esté cargado y clasificado (y, si la sede es nueva, cuando escribas el Inventario Inicial).</span>
+    </div>
+
+    <div class="card hidden-block" id="balanceResultsCard">
+      <div id="balanceResultsView"></div>
+      <div class="footer-actions">
+        <button class="btn-primary" id="balanceSaveWeekBtn">Guardar esta semana</button>
+        <button class="btn-secondary" id="balanceDownloadExcelBtn">⬇ Descargar Excel</button>
+        <button class="btn-secondary" id="balanceDownloadReportBtn">⬇ Informe comparativo (HTML)</button>
+      </div>
+      <div class="banner info hidden-block" id="balanceSaveBanner"></div>
+    </div>
+  </div>
+
+  <div id="ventasFlow" class="hidden-block">
+    <button type="button" class="btn-secondary back-btn" id="backFromVentasBtn">‹ Volver al inicio</button>
+
+    <div class="card">
+      <h2 style="margin-top:0">Cargar ventas diarias de una sede</h2>
+      <p class="hint">El archivo trae siempre el histórico completo de la sede hasta hoy — puedes volver a subir el mismo archivo (recién descargado) todos los días, se actualiza solo por fecha, sin duplicar nada.</p>
+      <div class="fields">
+        <div class="field">
+          <label>Sede</label>
+          <input type="text" id="ventSedeInput" placeholder="Ej. Decepaz">
+        </div>
+      </div>
+      <div class="dropzone" id="ventDropzone">
+        <p class="big">Ventas Netas Por Dia (Tecnocarnes)</p>
+        <p>El .xls que descargas de la plataforma — un archivo por sede</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('ventFileInput').click()">Seleccionar archivo</button>
+        <input type="file" id="ventFileInput" accept=".xlsx,.xls">
+        <p class="hint" id="ventFileName"></p>
+      </div>
+      <div class="banner error hidden-block" id="ventErrorBanner"></div>
+
+      <div class="hidden-block" id="ventPreviewCard">
+        <div class="balance-block-title">Vista previa</div>
+        <div class="kpi-grid" id="ventKpiGrid"></div>
+        <div class="footer-actions">
+          <button class="btn-primary" id="ventSaveBtn">Guardar en el historial</button>
+        </div>
+        <div class="banner info hidden-block" id="ventSaveBanner"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="reportesFlow" class="hidden-block">
+    <button type="button" class="btn-secondary back-btn" id="backFromReportesBtn">‹ Volver al inicio</button>
+
+    <div class="tabs" id="reportesTypeTabs">
+      <button class="tab-btn tab-active" id="reportesTypeBalanceBtn">📊 Balance</button>
+      <button class="tab-btn" id="reportesTypeMovimientosBtn">📋 Tabla de Movimientos</button>
+      <button class="tab-btn" id="reportesTypeAuditoriasBtn">🗒 Auditorías</button>
+      <button class="tab-btn" id="reportesTypeVentasBtn">🎯 Presupuesto</button>
+    </div>
+
+    <div class="card" id="reportesCard">
+      <div class="dash-header-row">
+        <div>
+          <div class="dash-title">Reportes — margen, utilidad y ventas</div>
+          <div class="dash-sub">Margen/Utilidad vienen de Balance; Ventas viene del histórico de Ventas Diarias — un mismo tablero, elige qué comparar.</div>
+        </div>
+        <button class="btn-secondary" id="reportesDownloadBtn" disabled>⬇ Informe interactivo (HTML)</button>
+      </div>
+      <p class="hint" id="reportesLoadingHint">Cargando historial…</p>
+      <div class="banner error hidden-block" id="reportesErrorBanner"></div>
+
+      <div id="reportesView" class="hidden-block">
+        <div class="dash-filters">
+          <select id="reportesMetrica">
+            <option value="margenPct">Margen %</option>
+            <option value="utilidadBruta">Utilidad Bruta</option>
+            <option value="venta">Ventas</option>
+          </select>
+          <select id="reportesGranularity">
+            <option value="week">Semanal</option>
+            <option value="month" selected>Mensual</option>
+            <option value="year">Anual</option>
+          </select>
+          <select id="reportesSedeFilter"></select>
+        </div>
+        <div class="kpi-grid" id="reportesKpiGrid"></div>
+        <div class="dash-charts">
+          <div class="chart-box"><canvas id="chartReportesMargen"></canvas></div>
+          <div class="chart-box"><canvas id="chartReportesUtilidad"></canvas></div>
+        </div>
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Detalle por periodo</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Ventas</th><th>Compras</th><th>Utilidad</th><th>Margen %</th></tr></thead>
+              <tbody id="reportesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden-block" id="reportesMovCard">
+      <div class="dash-header-row">
+        <div>
+          <div class="dash-title">Reportes de Tabla de Movimientos</div>
+          <div class="dash-sub">Carga el Excel ya editado y corregido de la semana — se lee Disponible/Diferencia KL/% Diferencia tal como quedaron, no se recalcula nada.</div>
+        </div>
+      </div>
+
+      <div class="fields">
+        <div class="field">
+          <label>Sede</label>
+          <input type="text" id="movSedeInput" placeholder="Ej. Alameda">
+        </div>
+        <div class="field">
+          <label>Semana — inicio</label>
+          <input type="date" id="movWeekStartInput">
+        </div>
+        <div class="field">
+          <label>Semana — fin</label>
+          <input type="date" id="movWeekEndInput">
+        </div>
+      </div>
+      <div class="dropzone" id="movDropzone">
+        <p class="big">Excel de Tabla de Movimientos (ya editado/corregido)</p>
+        <p>El mismo archivo que descargaste y ajustaste — código, detalle, Disponible, Diferencia KL, % Diferencia</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('movFileInput').click()">Seleccionar archivo</button>
+        <input type="file" id="movFileInput" accept=".xlsx,.xls">
+        <p class="hint" id="movFileName"></p>
+      </div>
+      <div class="banner error hidden-block" id="movErrorBanner"></div>
+
+      <div class="hidden-block" id="movPreviewCard">
+        <div class="balance-block-title">Vista previa de la semana cargada</div>
+        <div id="reportesMovView">
+          <div class="kpi-grid" id="movKpiGrid"></div>
+          <div class="dash-table-wrap">
+            <div class="dash-table-title">Detalle por categoría</div>
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead><tr><th class="left">Categoría</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+                <tbody id="movCategoriaBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="footer-actions">
+          <button class="btn-primary" id="movSaveWeekBtn">Guardar esta semana</button>
+          <button class="btn-secondary" id="movDownloadReportBtn">⬇ Informe interactivo (HTML)</button>
+        </div>
+        <div class="banner info hidden-block" id="movSaveBanner"></div>
+      </div>
+
+      <div class="balance-block-title" style="margin-top:26px">Histórico guardado</div>
+      <p class="hint" id="movHistLoadingHint">Cargando historial…</p>
+      <div id="movHistView" class="hidden-block">
+        <div class="dash-filters">
+          <select id="movGranularity">
+            <option value="week">Semanal</option>
+            <option value="month" selected>Mensual</option>
+            <option value="year">Anual</option>
+          </select>
+          <select id="movSedeFilter"></select>
+        </div>
+        <div class="kpi-grid" id="movHistKpiGrid"></div>
+        <div class="dash-charts">
+          <div class="chart-box"><canvas id="chartMovDiferencia"></canvas></div>
+          <div class="chart-box"><canvas id="chartMovSedes"></canvas></div>
+        </div>
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Detalle por periodo</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+              <tbody id="movHistTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden-block" id="reportesAudCard">
+      <div class="dash-header-row">
+        <div>
+          <div class="dash-title">Reportes de Auditorías PDV</div>
+          <div class="dash-sub">Cumplimiento histórico por sede y por bloque del checklist.</div>
+        </div>
+        <button class="btn-secondary" id="audReportesDownloadBtn" disabled>⬇ Informe interactivo (HTML)</button>
+      </div>
+      <p class="hint" id="audReportesLoadingHint">Cargando historial…</p>
+      <div class="banner error hidden-block" id="audReportesErrorBanner"></div>
+
+      <div id="reportesAudView" class="hidden-block">
+        <div class="dash-filters">
+          <select id="audReportesGranularity">
+            <option value="week">Semanal</option>
+            <option value="month" selected>Mensual</option>
+            <option value="year">Anual</option>
+          </select>
+          <select id="audReportesSedeFilter"></select>
+        </div>
+        <div class="kpi-grid" id="audReportesKpiGrid"></div>
+        <div class="dash-charts">
+          <div class="chart-box"><canvas id="chartAudCumplimiento"></canvas></div>
+          <div class="chart-box"><canvas id="chartAudBloques"></canvas></div>
+        </div>
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Detalle por periodo</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Auditorías</th><th>% Cumplimiento</th></tr></thead>
+              <tbody id="audReportesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden-block" id="reportesVentCard">
+      <div class="dash-header-row">
+        <div>
+          <div class="dash-title">Presupuesto y carga de Ventas</div>
+          <div class="dash-sub">Sube el archivo diario de ventas de una sede y gestiona la meta mensual — la comparativa de venta/margen/utilidad ya está unificada en la pestaña "Balance".</div>
+        </div>
+      </div>
+
+      <div class="balance-block-title" style="margin-top:0">Cargar ventas actualizadas</div>
+      <div class="fields">
+        <div class="field">
+          <label>Sede</label>
+          <input type="text" id="ventRepSedeInput" placeholder="Ej. Decepaz">
+        </div>
+      </div>
+      <div class="dropzone" id="ventRepDropzone">
+        <p class="big">Ventas Netas Por Dia (Tecnocarnes)</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('ventRepFileInput').click()">Seleccionar archivo</button>
+        <input type="file" id="ventRepFileInput" accept=".xlsx,.xls">
+        <p class="hint" id="ventRepFileName"></p>
+      </div>
+      <div class="banner error hidden-block" id="ventRepErrorBanner"></div>
+      <div class="hidden-block" id="ventRepPreviewCard">
+        <div class="kpi-grid" id="ventRepKpiGrid"></div>
+        <div class="footer-actions">
+          <button class="btn-primary" id="ventRepSaveBtn">Guardar en el historial</button>
+        </div>
+        <div class="banner info hidden-block" id="ventRepSaveBanner"></div>
+      </div>
+
+      <div class="balance-block-title">Presupuesto del mes por sede</div>
+      <p class="hint">Meta de venta mensual — se usa para calcular cumplimiento y proyección (acá y en la pestaña Balance). Edítala cuando cambie.</p>
+      <div class="table-scroll">
+        <table class="dash-table">
+          <thead><tr><th class="left">Sede</th><th>Presupuesto</th><th></th></tr></thead>
+          <tbody id="presupuestoTableBody"></tbody>
+        </table>
+      </div>
+
+      <p class="hint" id="ventReportesLoadingHint" style="margin-top:18px">Cargando historial…</p>
+      <div class="banner error hidden-block" id="ventReportesErrorBanner"></div>
+
+      <div id="reportesVentView" class="hidden-block" style="margin-top:10px">
+        <div class="dash-table-title">Acumulado del mes vs. presupuesto, por sede</div>
+        <div class="dash-charts">
+          <div class="chart-box" style="grid-column:1/-1"><canvas id="chartVentPresupuesto"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="auditoriasFlow" class="hidden-block">
+    <button type="button" class="btn-secondary back-btn" id="backFromAuditoriasBtn">‹ Volver al inicio</button>
+
+    <div class="card">
+      <h2 style="margin-top:0">Auditoría de Punto de Venta</h2>
+      <div class="fields">
+        <div class="field">
+          <label>Sede</label>
+          <input type="text" id="audSedeInput" placeholder="Ej. Alameda">
+        </div>
+        <div class="field">
+          <label>Fecha</label>
+          <input type="date" id="audDateInput">
+        </div>
+        <div class="field">
+          <label>Hora</label>
+          <input type="time" id="audTimeInput">
+        </div>
+        <div class="field">
+          <label>Auditor</label>
+          <input type="text" id="audAuditorInput" placeholder="Nombre del auditor">
+        </div>
+      </div>
+    </div>
+
+    <div id="auditBlocksContainer"></div>
+
+    <div class="card">
+      <h2 style="margin-top:0">Resumen de la visita</h2>
+      <div class="fields">
+        <div class="field">
+          <label>Resultado</label>
+          <select id="audResultadoInput">
+            <option value="cumple_total">Cumple totalmente</option>
+            <option value="cumple_obs">Cumple con observaciones</option>
+            <option value="no_cumple">No cumple</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Fecha de seguimiento</label>
+          <input type="date" id="audSeguimientoInput">
+        </div>
+      </div>
+      <div class="fields">
+        <div class="field" style="flex:1 1 100%">
+          <label>Hallazgos principales</label>
+          <input type="text" id="audHallazgosInput" placeholder="Opcional">
+        </div>
+      </div>
+      <div class="fields">
+        <div class="field" style="flex:1 1 100%">
+          <label>Plan de acción</label>
+          <input type="text" id="audPlanInput" placeholder="Opcional">
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="audSaveCard">
+      <button class="btn-primary" id="audSaveBtn" disabled>Guardar auditoría</button>
+      <span class="audit-progress" id="audProgressHint" style="margin-left:10px">0 de 0 ítems marcados</span>
+      <div class="banner info hidden-block" id="audSaveBanner"></div>
+    </div>
+  </div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

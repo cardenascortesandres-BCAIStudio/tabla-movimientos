@@ -1,0 +1,23 @@
+/* Valores por defecto de la plantilla "Clásico oscuro" (ver
+   src/theme/templates.js, única fuente de verdad de color de la plataforma).
+   applyTemplateToDOM() en main.js sobreescribe estas variables en tiempo de
+   ejecución cuando el usuario elige otra plantilla; el Excel exportado usa la
+   misma plantilla vía toExcelPalette(), así que pantalla y Excel siempre
+   coinciden sin necesidad de sincronizar nada a mano. */
+:root{
+  --rojo-1:#8b1e1e; --rojo-2:#b32424; --rojo-bg:#fdf1f1;
+  --verde-ok:#1f7a3f; --verde-bg:#f0f9f2;
+  --gris-1:#f4f5f7; --gris-2:#e5e7eb; --gris-3:#9aa0a6; --gris-txt:#374151;
+  --azul:#1d4ed8; --azul-bg:#eef2ff;
+  --amarillo-bg:#fff8e1; --amarillo-bd:#f0c419;
+
+  --header-bg:#20242c; --header-fg:#ffffff;
+  --cat-row-bg:#2c3140; --cat-row-fg:#ffffff;
+  --subtotal-bg:#f4f5f7; --subtotal-fg:#1f2430;
+
+  --accent: #8b1e1e;
+  --accent-2: #b32424;
+  --dash-bg: #0b0f1c;
+
+  --font: 'Segoe UI', Arial, Helvetica, sans-serif;
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-web/
+*.log
+.DS_Store
+.env
+.claude/
+.agents/
+tests/manual/*.xls
+tests/manual/*.xlsx
+tests/manual/*.html
+!tests/manual/README.md
