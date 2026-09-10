@@ -997,7 +997,7 @@ function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInSc
 
 async function downloadReportesReport() {
   if (!reportesWeeks) return;
-  const html = buildBalanceReportHtml(reportesWeeks, chartJsRawSource, {});
+  const html = buildBalanceReportHtml(reportesWeeks, ventasAllDias || [], chartJsRawSource, {});
   downloadBlob(html, 'reportes_brangus.html', 'text/html');
 }
 

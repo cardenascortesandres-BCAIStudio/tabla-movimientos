@@ -12,11 +12,13 @@
 import { CHART_DOWNLOAD_JS, CHART_GLOW_JS } from '../theme/chartDownloadPlugin.js';
 import { SEDE_PALETTE_JS } from '../theme/sedePalette.js';
 
-export function buildBalanceReportHtml(rawWeekRows, chartJsSource, meta) {
+export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, chartJsSource, meta) {
   const rawWeeks = (rawWeekRows || []).map(w => ({
     sedeName: w.sede_name, weekStart: w.week_start, weekEnd: w.week_end, computed: w.computed || {}
   }));
+  const rawVentas = (rawVentaRows || []).map(d => ({ sedeName: d.sede_name, fecha: d.fecha, valorVenta: Number(d.valor_venta) || 0 }));
   const dataJson = JSON.stringify(rawWeeks);
+  const ventasJson = JSON.stringify(rawVentas);
   const generatedAt = new Date().toLocaleString('es-CO');
   const title = `Reportes Brangus${meta?.periodo ? ' — ' + meta.periodo : ''}`;
   const sedeCount = new Set(rawWeeks.map(w => w.sedeName)).size;
@@ -71,7 +73,7 @@ ${VIEWER_CSS}
     <select id="filterMetrica">
       <option value="margenPct">Margen %</option>
       <option value="utilidadBruta">Utilidad Bruta</option>
-      <option value="totalVentas">Total Ventas</option>
+      <option value="venta">Ventas</option>
     </select>
     <select id="filterSede"></select>
     <select id="filterPeriodo"></select>
@@ -101,6 +103,7 @@ ${CHART_DOWNLOAD_JS}
 ${CHART_GLOW_JS}
 ${SEDE_PALETTE_JS}
 const RAW_WEEKS = ${dataJson};
+const RAW_VENTAS = ${ventasJson};
 ${AGG_JS}
 ${VIEWER_JS}
 </script>
@@ -202,6 +205,43 @@ function aggregateByPeriod(rawWeeks, granularity){
   const periodKeysSorted = Array.from(byPeriod.keys()).sort();
   return { granularity, bySede, byPeriod: Array.from(byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })), periodKeysSorted, sedeNames: bySede.map(s => s.sedeName).sort() };
 }
+
+// Ventas reales (ventas_dias) — mismo molde que aggregateByPeriod de arriba,
+// pero agrupando por día (puerto de src/ventas/ventasDashboardData.js) para
+// que "semana" agrupe lunes-domingo igual que en el dashboard en pantalla.
+function isoWeekStart(fecha){
+  const d = new Date(String(fecha).slice(0, 10) + 'T00:00:00Z');
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  return d.toISOString().slice(0, 10);
+}
+function ventaPeriodKeyFor(fecha, granularity){
+  const iso = String(fecha).slice(0, 10);
+  if (granularity === 'week') return isoWeekStart(fecha);
+  const d = new Date(iso + 'T00:00:00Z');
+  const y = d.getUTCFullYear();
+  if (granularity === 'year') return String(y);
+  return y + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+}
+function aggregateVentasByPeriod(rawVentas, granularity){
+  const accBySede = new Map();
+  rawVentas.forEach(d => {
+    const sedeName = d.sedeName;
+    const periodKey = ventaPeriodKeyFor(d.fecha, granularity);
+    if (!accBySede.has(sedeName)) accBySede.set(sedeName, new Map());
+    const periods = accBySede.get(sedeName);
+    if (!periods.has(periodKey)) periods.set(periodKey, { periodKey, sedeName, valorVenta: 0 });
+    periods.get(periodKey).valorVenta += d.valorVenta || 0;
+  });
+  const bySede = [], byPeriod = new Map();
+  accBySede.forEach((periods, sedeName) => {
+    const points = Array.from(periods.values()).map(acc => ({ periodKey: acc.periodKey, periodLabel: periodLabel(acc.periodKey, granularity), sedeName, valorVenta: acc.valorVenta })).sort((a, b) => a.periodKey < b.periodKey ? -1 : 1);
+    bySede.push({ sedeName, points });
+    points.forEach(p => { if (!byPeriod.has(p.periodKey)) byPeriod.set(p.periodKey, []); byPeriod.get(p.periodKey).push(p); });
+  });
+  const periodKeysSorted = Array.from(byPeriod.keys()).sort();
+  return { granularity, bySede, byPeriod: Array.from(byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })), periodKeysSorted, sedeNames: bySede.map(s => s.sedeName).sort() };
+}
 `;
 
 const VIEWER_JS = `
@@ -209,7 +249,7 @@ function fmtCOP(v){ if(v==null||isNaN(v)) return '$0'; return '$' + Math.round(v
 function fmtPct(v){ return (Math.round(v*1000)/10).toFixed(1)+'%'; }
 function el(id){ return document.getElementById(id); }
 
-const METRIC_LABELS = { margenPct: 'Margen %', utilidadBruta: 'Utilidad Bruta', totalVentas: 'Total Ventas' };
+const METRIC_LABELS = { margenPct: 'Margen %', utilidadBruta: 'Utilidad Bruta', venta: 'Ventas' };
 const GRAN_LABELS = { week: 'semana', month: 'mes', year: 'año' };
 
 const ACCENTS = ['#3ea8ff','#2be3a8','#ff3b6e','#f0b429','#a86bff','#ff8a3d'];
@@ -244,7 +284,13 @@ function setAccent(color){
 let activeView = 'tiempo';
 let charts = {};
 let currentData = null;
+let currentVentaData = null;
 function destroyChart(id){ if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+// "Ventas" tiene su PROPIO calendario (ventas_dias, día a día) — el resto de
+// métricas viene de balance_weeks. Estas 2 funciones son el único lugar que
+// necesita saber cuál de las dos fuentes usar.
+function activeSource(){ return el('filterMetrica').value === 'venta' ? currentVentaData : currentData; }
+function pointValue(metric, point){ return metric === 'venta' ? point.valorVenta : point[metric]; }
 
 function initTabs(){
   document.querySelectorAll('.view-tab').forEach(btn => {
@@ -261,17 +307,25 @@ function initTabs(){
 }
 
 function recomputeData(){
-  currentData = aggregateByPeriod(RAW_WEEKS, el('filterGranularidad').value);
+  const granularity = el('filterGranularidad').value;
+  currentData = aggregateByPeriod(RAW_WEEKS, granularity);
+  currentVentaData = aggregateVentasByPeriod(RAW_VENTAS, granularity);
+  const data = activeSource();
   const periodoSel = el('filterPeriodo');
-  periodoSel.innerHTML = currentData.periodKeysSorted.slice().reverse().map(k => {
-    const label = (currentData.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k;
+  periodoSel.innerHTML = data.periodKeysSorted.slice().reverse().map(k => {
+    const label = (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k;
     return '<option value="' + k + '">' + label + '</option>';
   }).join('');
 }
 
 function initFilters(){
   const sedeSel = el('filterSede');
-  el('filterMetrica').addEventListener('change', refreshActiveView);
+  el('filterMetrica').addEventListener('change', () => {
+    recomputeData(); // el listado de periodos/sedes puede cambiar (Ventas usa su propio calendario)
+    refreshSedeOptions();
+    renderKpis();
+    refreshActiveView();
+  });
   sedeSel.addEventListener('change', () => { renderKpis(); refreshActiveView(); });
   el('filterPeriodo').addEventListener('change', () => { renderKpis(); refreshActiveView(); });
   el('filterGranularidad').addEventListener('change', () => {
@@ -284,8 +338,9 @@ function initFilters(){
 function refreshSedeOptions(){
   const sedeSel = el('filterSede');
   const prev = sedeSel.value;
-  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + currentData.sedeNames.map(s => '<option value="' + s + '">' + s + '</option>').join('');
-  if (currentData.sedeNames.includes(prev)) sedeSel.value = prev;
+  const data = activeSource();
+  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + data.sedeNames.map(s => '<option value="' + s + '">' + s + '</option>').join('');
+  if (data.sedeNames.includes(prev)) sedeSel.value = prev;
 }
 
 function currentAccent(){ return getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#3ea8ff'; }
@@ -311,19 +366,38 @@ function chartOptions(title, indexAxis, tooltipFormatter){
 function metricFormatter(metric){ return metric === 'margenPct' ? fmtPct : fmtCOP; }
 
 function renderKpis(){
+  const metric = el('filterMetrica').value;
   const sedeFilter = el('filterSede').value;
-  const series = sedeFilter ? currentData.bySede.filter(s => s.sedeName === sedeFilter) : currentData.bySede;
+  const data = activeSource();
+  const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
   const allPoints = series.flatMap(s => s.points);
-  const period = el('filterPeriodo').value || currentData.periodKeysSorted[currentData.periodKeysSorted.length - 1];
+  const period = el('filterPeriodo').value || data.periodKeysSorted[data.periodKeysSorted.length - 1];
   const periodPoints = allPoints.filter(p => p.periodKey === period);
   const periodLabelTxt = (periodPoints[0] || {}).periodLabel || period;
+  const sedeLabel = sedeFilter ? ' — ' + sedeFilter : '';
+  const granLabel = data.granularity === 'week' ? 'Semanas' : data.granularity === 'month' ? 'Meses' : 'Años';
+
+  if (metric === 'venta') {
+    const ventaPeriodo = periodPoints.reduce((a, p) => a + p.valorVenta, 0);
+    const idx = data.periodKeysSorted.indexOf(period);
+    const prevKey = idx > 0 ? data.periodKeysSorted[idx - 1] : null;
+    const prevPoints = prevKey ? allPoints.filter(p => p.periodKey === prevKey) : [];
+    const ventaPrev = prevPoints.reduce((a, p) => a + p.valorVenta, 0);
+    const crecimiento = ventaPrev > 0 ? (ventaPeriodo - ventaPrev) / ventaPrev : null;
+    el('kpiGrid').innerHTML =
+      '<div class="kpi-card"><div class="kpi-label">Sedes' + (sedeFilter ? ' filtradas' : ' con historial') + '</div><div class="kpi-value">' + series.length + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-label">' + granLabel + ' con datos</div><div class="kpi-value">' + data.periodKeysSorted.length + '</div></div>' +
+      '<div class="kpi-card kpi-pos"><div class="kpi-label">Ventas — ' + escapeHtmlJs(periodLabelTxt) + sedeLabel + '</div><div class="kpi-value">' + fmtCOP(ventaPeriodo) + '</div></div>' +
+      '<div class="kpi-card ' + (crecimiento == null ? '' : (crecimiento < 0 ? 'kpi-neg' : 'kpi-pos')) + '"><div class="kpi-label">Crecimiento vs. periodo anterior</div><div class="kpi-value">' + (crecimiento == null ? 'n/d' : fmtPct(crecimiento)) + '</div></div>';
+    return;
+  }
+
   const margen = periodPoints.length ? periodPoints.reduce((a, p) => a + p.utilidadBruta, 0) / (periodPoints.reduce((a, p) => a + p.totalVentas, 0) || 1) : 0;
   const utilidadPeriodo = periodPoints.reduce((a, p) => a + p.utilidadBruta, 0);
   const acumUtilidad = allPoints.reduce((a, p) => a + p.utilidadBruta, 0);
-  const sedeLabel = sedeFilter ? ' — ' + sedeFilter : '';
   el('kpiGrid').innerHTML =
     '<div class="kpi-card"><div class="kpi-label">Sedes' + (sedeFilter ? ' filtradas' : ' con historial') + '</div><div class="kpi-value">' + series.length + '</div></div>' +
-    '<div class="kpi-card"><div class="kpi-label">' + (currentData.granularity === 'week' ? 'Semanas' : currentData.granularity === 'month' ? 'Meses' : 'Años') + ' con datos</div><div class="kpi-value">' + currentData.periodKeysSorted.length + '</div></div>' +
+    '<div class="kpi-card"><div class="kpi-label">' + granLabel + ' con datos</div><div class="kpi-value">' + data.periodKeysSorted.length + '</div></div>' +
     '<div class="kpi-card ' + (margen < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Margen — ' + escapeHtmlJs(periodLabelTxt) + sedeLabel + '</div><div class="kpi-value">' + fmtPct(margen) + '</div></div>' +
     '<div class="kpi-card ' + (utilidadPeriodo < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Utilidad — ' + escapeHtmlJs(periodLabelTxt) + sedeLabel + '</div><div class="kpi-value">' + fmtCOP(utilidadPeriodo) + '</div></div>' +
     '<div class="kpi-card ' + (acumUtilidad < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Utilidad acumulada' + sedeLabel + '</div><div class="kpi-value">' + fmtCOP(acumUtilidad) + '</div></div>';
@@ -334,14 +408,15 @@ function viewTiempo(){
   destroyChart('tiempo');
   const metric = el('filterMetrica').value;
   const sedeFilter = el('filterSede').value;
-  const series = sedeFilter ? currentData.bySede.filter(s => s.sedeName === sedeFilter) : currentData.bySede;
-  const labels = currentData.periodKeysSorted.map(k => (currentData.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
+  const data = activeSource();
+  const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
+  const labels = data.periodKeysSorted.map(k => (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
   const datasets = series.map((s, i) => {
-    const byPeriod = new Map(s.points.map(p => [p.periodKey, p[metric]]));
-    return { label: s.sedeName, data: currentData.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: colorForSedeIndex(i), backgroundColor: colorForSedeIndex(i), spanGaps: true, tension: .25 };
+    const byPeriod = new Map(s.points.map(p => [p.periodKey, pointValue(metric, p)]));
+    return { label: s.sedeName, data: data.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: colorForSedeIndex(i), backgroundColor: colorForSedeIndex(i), spanGaps: true, tension: .25 };
   });
   const ctx = el('chartTiempo').getContext('2d');
-  const opts = chartOptions(METRIC_LABELS[metric] + ' por ' + GRAN_LABELS[currentData.granularity], null, metricFormatter(metric));
+  const opts = chartOptions(METRIC_LABELS[metric] + ' por ' + GRAN_LABELS[data.granularity], null, metricFormatter(metric));
   opts.plugins.legend.display = series.length > 1;
   charts.tiempo = new Chart(ctx, { type: 'line', data: { labels, datasets }, options: opts });
 }
@@ -349,11 +424,14 @@ function viewTiempo(){
 function viewSedes(){
   destroyChart('sedes');
   const metric = el('filterMetrica').value;
-  const period = el('filterPeriodo').value || currentData.periodKeysSorted[currentData.periodKeysSorted.length - 1];
-  const rows = (currentData.byPeriod.find(w => w.periodKey === period) || { points: [] }).points;
-  const labels = rows.map(r => r.sedeName);
-  const values = rows.map(r => r[metric]);
+  const data = activeSource();
+  const period = el('filterPeriodo').value || data.periodKeysSorted[data.periodKeysSorted.length - 1];
+  const rows = (data.byPeriod.find(w => w.periodKey === period) || { points: [] }).points;
   const label = (rows[0] || {}).periodLabel || period;
+  // Ordenado de mayor a menor (el mejor resultado primero, a la izquierda).
+  const sorted = rows.slice().sort((a, b) => pointValue(metric, b) - pointValue(metric, a));
+  const labels = sorted.map(r => r.sedeName);
+  const values = sorted.map(r => pointValue(metric, r));
   const ctx = el('chartSedes').getContext('2d');
   // Un color por sede (no rojo/verde por signo) — el objetivo de esta vista
   // es distinguir sedes entre sí, no si el valor es positivo/negativo.
@@ -362,6 +440,22 @@ function viewSedes(){
 
 let sortState = { key: 'periodKey', dir: -1 };
 function viewRanking(){
+  const metric = el('filterMetrica').value;
+  if (metric === 'venta') {
+    let rows = currentVentaData.bySede.flatMap(s => s.points);
+    const sede = el('filterSede').value;
+    if (sede) rows = rows.filter(r => r.sedeName === sede);
+    rows = rows.slice().sort((a, b) => {
+      const key = sortState.key === 'totalVentas' ? 'valorVenta' : sortState.key;
+      const av = a[key], bv = b[key];
+      if (typeof av === 'string') return av.localeCompare(bv) * sortState.dir;
+      return ((av || 0) - (bv || 0)) * sortState.dir;
+    });
+    el('rankingBody').innerHTML = rows.map(r =>
+      '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.valorVenta) + '</td><td>—</td><td>—</td></tr>'
+    ).join('') || '<tr><td colspan="5" class="left">Sin ventas guardadas todavía.</td></tr>';
+    return;
+  }
   let rows = currentData.bySede.flatMap(s => s.points);
   const sede = el('filterSede').value;
   if (sede) rows = rows.filter(r => r.sedeName === sede);
