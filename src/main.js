@@ -761,7 +761,7 @@ async function downloadBalanceReport() {
 
 // ---------------- Reportes ----------------
 let reportesWeeks = null; // filas crudas de balance_weeks (todas las sedes), cargadas una vez por visita
-let chartReportesMargen, chartReportesUtilidad, chartReportesRanking, chartReportesPresupuesto;
+let chartReportesMargen, chartReportesUtilidad, chartReportesPresupuesto;
 let reportesSelectedPeriods = null; // Set<periodKey> | null (null = todos los periodos disponibles)
 // Sub-vista activa del dashboard unificado: 'tiempo' | 'sedes' | 'ranking' | 'presupuesto'.
 // "presupuesto" ignora el selector de métrica/granularidad (siempre es venta
@@ -882,8 +882,6 @@ function renderReportes() {
     renderReportesPresupuestoView(sedeFilter);
   } else if (reportesSubView === 'sedes') {
     renderReportesSedesChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf);
-  } else if (reportesSubView === 'ranking') {
-    renderReportesRankingChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf);
   } else {
     renderReportesTiempoChart(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf);
   }
@@ -895,7 +893,6 @@ function switchReportesSubView(view) {
   document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => btn.classList.toggle('tab-active', btn.dataset.subview === view));
   el('reportesTiempoView').classList.toggle('hidden-block', view !== 'tiempo');
   el('reportesSedesView').classList.toggle('hidden-block', view !== 'sedes');
-  el('reportesRankingView').classList.toggle('hidden-block', view !== 'ranking');
   el('reportesPresupuestoView').classList.toggle('hidden-block', view !== 'presupuesto');
   if (reportesWeeks) renderReportes();
 }
@@ -1040,43 +1037,17 @@ function renderReportesSedesChart(metric, data, ventaData, sedeFilter, periodKey
   // entre sí, no si el valor es positivo/negativo.
   const barColors = barLabels.map(sedeName => palette[sedeNames.indexOf(sedeName) % palette.length]);
   const scopeLabel = singlePeriod ? (periodLabelOf(singlePeriod) || singlePeriod) : periodKeysInScope.length + ' periodo(s) seleccionado(s)';
+  // Barras verticales (indexAxis 'x', el default de dashboardChartOptions):
+  // con 'y' (horizontal) el callback de tooltip de dashboardChartOptions lee
+  // ctx.parsed.y, que en un bar horizontal es el índice de categoría (no el
+  // valor) — mostraba el número equivocado al pasar el mouse.
   chartReportesUtilidad = new Chart(el('chartReportesUtilidad').getContext('2d'), {
     type: 'bar', data: { labels: barLabels, datasets: [{ data: barValues, backgroundColor: barColors, borderRadius: 6 }] },
-    options: Object.assign(dashboardChartOptions(metricLabel + ' — ' + scopeLabel, 'reportesView', valueFmt), { indexAxis: 'y' })
+    options: dashboardChartOptions(metricLabel + ' — ' + scopeLabel, 'reportesView', valueFmt)
   });
 }
 
-// "Ranking": a diferencia de "Comparativa entre sedes" (que SUMA los periodos
-// seleccionados por sede), acá cada barra es un (sede, periodo) individual —
-// responde "cuál fue mi mejor semana/mes/año, en cualquier sede", no solo
-// "cuál sede vendió más en total".
-function renderReportesRankingChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf) {
-  if (chartReportesRanking) chartReportesRanking.destroy();
-  const metricLabel = REPORTES_METRIC_LABELS[metric];
-  const isPercentMetric = metric === 'margenPct';
-  const valueFmt = isPercentMetric ? fmtPct : fmtCOP;
-  const source = metric === 'venta' ? ventaData : data;
-  const sedeNamesAll = Array.from(source.bySede.keys());
-
-  let rows = Array.from(source.bySede.entries()).flatMap(([sedeName, points]) =>
-    points.filter(p => periodKeysInScope.includes(p.periodKey))
-      .map(p => ({ sedeName, periodKey: p.periodKey, value: metric === 'venta' ? p.valorVenta : p[metric] }))
-  );
-  if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
-  rows.sort((a, b) => b.value - a.value);
-  const top = rows.slice(0, 15);
-
-  const labels = top.map(r => `${r.sedeName} — ${periodLabelOf(r.periodKey)}`);
-  const values = top.map(r => r.value);
-  const colors = top.map(r => SEDE_PALETTE[sedeNamesAll.indexOf(r.sedeName) % SEDE_PALETTE.length]);
-  const opts = Object.assign(dashboardChartOptions(`Ranking — ${metricLabel} (mejores periodos)`, 'reportesView', valueFmt), { indexAxis: 'y' });
-  opts.plugins.legend.display = false;
-  chartReportesRanking = new Chart(el('chartReportesRanking').getContext('2d'), {
-    type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 6 }] }, options: opts
-  });
-}
-
-// "Presupuesto": a diferencia de las otras 3 sub-vistas, ignora el selector
+// "Presupuesto": a diferencia de las otras 2 sub-vistas, ignora el selector
 // de métrica/granularidad/fechas — siempre es venta real del MES EN CURSO
 // contra la meta que dio la empresa (ver computeProjection en
 // src/ventas/ventasDashboardData.js), respetando solo el filtro de sede.

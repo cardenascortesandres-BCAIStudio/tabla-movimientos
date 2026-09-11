@@ -63,7 +63,6 @@ ${VIEWER_CSS}
   <nav class="view-tabs" id="viewTabs">
     <button class="view-tab active" data-view="tiempo">📈 Serie de tiempo</button>
     <button class="view-tab" data-view="sedes">📊 Comparativa entre sedes</button>
-    <button class="view-tab" data-view="ranking">🏆 Ranking</button>
     <button class="view-tab" data-view="presupuesto">🎯 Presupuesto</button>
   </nav>
 
@@ -94,7 +93,6 @@ ${VIEWER_CSS}
 
   <section class="view-panel" id="view-tiempo"><div class="chart-box"><canvas id="chartTiempo"></canvas></div></section>
   <section class="view-panel hidden-block" id="view-sedes"><div class="chart-box"><canvas id="chartSedes"></canvas></div></section>
-  <section class="view-panel hidden-block" id="view-ranking"><div class="chart-box"><canvas id="chartRanking"></canvas></div></section>
   <section class="view-panel hidden-block" id="view-presupuesto">
     <div class="kpi-grid" id="presuKpiGrid" style="margin-bottom:16px"></div>
     <div class="chart-box" style="margin-bottom:16px"><canvas id="chartPresupuesto"></canvas></div>
@@ -556,37 +554,14 @@ function viewSedes(){
   // Un color por sede (no rojo/verde por signo, mismo color que en el
   // gráfico de tiempo) — el objetivo de esta vista es distinguir sedes.
   const colorOf = (sedeName) => colorForSedeIndex(sedeNames.indexOf(sedeName));
-  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map(colorOf), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + scopeLabel, 'y', metricFormatter(metric)) });
+  // Barras verticales (indexAxis 'x', el default): con 'y' (horizontal) el
+  // callback de tooltip de chartOptions lee ctx.parsed.y, que en un bar
+  // horizontal es el índice de categoría (no el valor) — mostraba el número
+  // equivocado al pasar el mouse.
+  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map(colorOf), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + scopeLabel, null, metricFormatter(metric)) });
 }
 
-// "Ranking": a diferencia de "Comparativa entre sedes" (que SUMA los
-// periodos seleccionados por sede), acá cada barra es un (sede, periodo)
-// individual — responde "cuál fue mi mejor semana/mes/año, en cualquier
-// sede", no solo "cuál sede vendió más en total".
-function viewRanking(){
-  destroyChart('ranking');
-  const metric = el('filterMetrica').value;
-  const scope = periodsInScope();
-  const sedeFilter = el('filterSede').value;
-  const data = activeSource();
-  const sedeNamesAll = data.sedeNames;
-
-  let rows = data.bySede.flatMap(s => s.points.filter(p => scope.includes(p.periodKey)).map(p => ({
-    sedeName: s.sedeName, periodLabel: p.periodLabel, value: pointValue(metric, p)
-  })));
-  if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
-  rows.sort((a, b) => b.value - a.value);
-  const top = rows.slice(0, 15);
-
-  const labels = top.map(r => r.sedeName + ' — ' + r.periodLabel);
-  const values = top.map(r => r.value);
-  const colors = top.map(r => colorForSedeIndex(sedeNamesAll.indexOf(r.sedeName)));
-  const opts = chartOptions('Ranking — ' + METRIC_LABELS[metric] + ' (mejores periodos)', 'y', metricFormatter(metric));
-  opts.plugins.legend.display = false;
-  charts.ranking = new Chart(el('chartRanking').getContext('2d'), { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 6 }] }, options: opts });
-}
-
-// "Presupuesto": a diferencia de las otras 3 vistas, ignora
+// "Presupuesto": a diferencia de la otra vista, ignora
 // métrica/granularidad/fechas — siempre es venta real del MES EN CURSO (al
 // momento de abrir este informe) contra la meta que dio la empresa, respeta
 // solo el filtro de sede.
@@ -649,7 +624,6 @@ function viewPresupuesto(){
 function refreshActiveView(){
   if (activeView === 'tiempo') viewTiempo();
   else if (activeView === 'sedes') viewSedes();
-  else if (activeView === 'ranking') viewRanking();
   else if (activeView === 'presupuesto') viewPresupuesto();
 }
 
