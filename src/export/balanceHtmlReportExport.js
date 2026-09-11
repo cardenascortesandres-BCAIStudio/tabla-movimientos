@@ -12,13 +12,15 @@
 import { CHART_DOWNLOAD_JS, CHART_GLOW_JS } from '../theme/chartDownloadPlugin.js';
 import { SEDE_PALETTE_JS } from '../theme/sedePalette.js';
 
-export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, chartJsSource, meta) {
+export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuestoRows, chartJsSource, meta) {
   const rawWeeks = (rawWeekRows || []).map(w => ({
     sedeName: w.sede_name, weekStart: w.week_start, weekEnd: w.week_end, computed: w.computed || {}
   }));
   const rawVentas = (rawVentaRows || []).map(d => ({ sedeName: d.sede_name, fecha: d.fecha, valorVenta: Number(d.valor_venta) || 0 }));
+  const rawPresupuestos = (rawPresupuestoRows || []).map(p => ({ sedeName: p.sede_name, anio: p.anio, mes: p.mes, monto: Number(p.monto) || 0 }));
   const dataJson = JSON.stringify(rawWeeks);
   const ventasJson = JSON.stringify(rawVentas);
+  const presupuestosJson = JSON.stringify(rawPresupuestos);
   const generatedAt = new Date().toLocaleString('es-CO');
   const title = `Reportes Brangus${meta?.periodo ? ' — ' + meta.periodo : ''}`;
   const sedeCount = new Set(rawWeeks.map(w => w.sedeName)).size;
@@ -62,6 +64,7 @@ ${VIEWER_CSS}
     <button class="view-tab active" data-view="tiempo">📈 Serie de tiempo</button>
     <button class="view-tab" data-view="sedes">📊 Comparativa entre sedes</button>
     <button class="view-tab" data-view="ranking">🏆 Ranking</button>
+    <button class="view-tab" data-view="presupuesto">🎯 Presupuesto</button>
   </nav>
 
   <div class="filters">
@@ -91,14 +94,13 @@ ${VIEWER_CSS}
 
   <section class="view-panel" id="view-tiempo"><div class="chart-box"><canvas id="chartTiempo"></canvas></div></section>
   <section class="view-panel hidden-block" id="view-sedes"><div class="chart-box"><canvas id="chartSedes"></canvas></div></section>
-  <section class="view-panel hidden-block" id="view-ranking">
-    <table class="dtable" id="rankingTable">
-      <thead><tr>
-        <th class="left" data-sort="sedeName">Sede</th><th class="left" data-sort="periodKey">Periodo</th>
-        <th data-sort="totalVentas">Ventas</th>
-        <th data-sort="utilidadBruta">Utilidad Bruta</th><th data-sort="margenPct">Margen %</th>
-      </tr></thead>
-      <tbody id="rankingBody"></tbody>
+  <section class="view-panel hidden-block" id="view-ranking"><div class="chart-box"><canvas id="chartRanking"></canvas></div></section>
+  <section class="view-panel hidden-block" id="view-presupuesto">
+    <div class="kpi-grid" id="presuKpiGrid" style="margin-bottom:16px"></div>
+    <div class="chart-box" style="margin-bottom:16px"><canvas id="chartPresupuesto"></canvas></div>
+    <table class="dtable" id="presuTable">
+      <thead><tr><th class="left">Sede</th><th>Acumulado</th><th>Proyección de cierre</th><th>Presupuesto</th><th>% Proyectado</th></tr></thead>
+      <tbody id="presuTableBody"></tbody>
     </table>
   </section>
 
@@ -114,6 +116,7 @@ ${CHART_GLOW_JS}
 ${SEDE_PALETTE_JS}
 const RAW_WEEKS = ${dataJson};
 const RAW_VENTAS = ${ventasJson};
+const RAW_PRESUPUESTOS = ${presupuestosJson};
 ${AGG_JS}
 ${VIEWER_JS}
 </script>
@@ -553,57 +556,101 @@ function viewSedes(){
   // Un color por sede (no rojo/verde por signo, mismo color que en el
   // gráfico de tiempo) — el objetivo de esta vista es distinguir sedes.
   const colorOf = (sedeName) => colorForSedeIndex(sedeNames.indexOf(sedeName));
-  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map(colorOf), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + scopeLabel, null, metricFormatter(metric)) });
+  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map(colorOf), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + scopeLabel, 'y', metricFormatter(metric)) });
 }
 
-let sortState = { key: 'periodKey', dir: -1 };
+// "Ranking": a diferencia de "Comparativa entre sedes" (que SUMA los
+// periodos seleccionados por sede), acá cada barra es un (sede, periodo)
+// individual — responde "cuál fue mi mejor semana/mes/año, en cualquier
+// sede", no solo "cuál sede vendió más en total".
 function viewRanking(){
+  destroyChart('ranking');
   const metric = el('filterMetrica').value;
   const scope = periodsInScope();
-  if (metric === 'venta') {
-    let rows = currentVentaData.bySede.flatMap(s => s.points).filter(r => scope.includes(r.periodKey));
-    const sede = el('filterSede').value;
-    if (sede) rows = rows.filter(r => r.sedeName === sede);
-    rows = rows.slice().sort((a, b) => {
-      const key = sortState.key === 'totalVentas' ? 'valorVenta' : sortState.key;
-      const av = a[key], bv = b[key];
-      if (typeof av === 'string') return av.localeCompare(bv) * sortState.dir;
-      return ((av || 0) - (bv || 0)) * sortState.dir;
-    });
-    el('rankingBody').innerHTML = rows.map(r =>
-      '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.valorVenta) + '</td><td>—</td><td>—</td></tr>'
-    ).join('') || '<tr><td colspan="5" class="left">Sin ventas guardadas todavía.</td></tr>';
-    return;
-  }
-  let rows = currentData.bySede.flatMap(s => s.points).filter(r => scope.includes(r.periodKey));
-  const sede = el('filterSede').value;
-  if (sede) rows = rows.filter(r => r.sedeName === sede);
-  rows = rows.slice().sort((a, b) => {
-    const av = a[sortState.key], bv = b[sortState.key];
-    if (typeof av === 'string') return av.localeCompare(bv) * sortState.dir;
-    return (av - bv) * sortState.dir;
-  });
-  el('rankingBody').innerHTML = rows.map(r => {
-    const cls = r.utilidadBruta < 0 ? 'diff-neg' : (Math.abs(r.utilidadBruta) < 0.01 ? 'diff-zero' : '');
-    return '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.totalVentas) + '</td><td class="' + cls + '">' + fmtCOP(r.utilidadBruta) + '</td><td>' + fmtPct(r.margenPct) + '</td></tr>';
-  }).join('') || '<tr><td colspan="5" class="left">Sin semanas guardadas todavía.</td></tr>';
+  const sedeFilter = el('filterSede').value;
+  const data = activeSource();
+  const sedeNamesAll = data.sedeNames;
+
+  let rows = data.bySede.flatMap(s => s.points.filter(p => scope.includes(p.periodKey)).map(p => ({
+    sedeName: s.sedeName, periodLabel: p.periodLabel, value: pointValue(metric, p)
+  })));
+  if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
+  rows.sort((a, b) => b.value - a.value);
+  const top = rows.slice(0, 15);
+
+  const labels = top.map(r => r.sedeName + ' — ' + r.periodLabel);
+  const values = top.map(r => r.value);
+  const colors = top.map(r => colorForSedeIndex(sedeNamesAll.indexOf(r.sedeName)));
+  const opts = chartOptions('Ranking — ' + METRIC_LABELS[metric] + ' (mejores periodos)', 'y', metricFormatter(metric));
+  opts.plugins.legend.display = false;
+  charts.ranking = new Chart(el('chartRanking').getContext('2d'), { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 6 }] }, options: opts });
 }
 
-function initSort(){
-  document.querySelectorAll('#rankingTable th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      sortState.dir = (sortState.key === key) ? -sortState.dir : 1;
-      sortState.key = key;
-      viewRanking();
-    });
+// "Presupuesto": a diferencia de las otras 3 vistas, ignora
+// métrica/granularidad/fechas — siempre es venta real del MES EN CURSO (al
+// momento de abrir este informe) contra la meta que dio la empresa, respeta
+// solo el filtro de sede.
+function currentAnioMes(){ const now = new Date(); return { anio: now.getFullYear(), mes: now.getMonth() + 1 }; }
+function computeProjection(diaRows, anio, mes){
+  if (!diaRows.length) return null;
+  const acumulado = diaRows.reduce((a, r) => a + (r.valorVenta || 0), 0);
+  const ultimaFecha = diaRows.reduce((max, r) => { const f = String(r.fecha).slice(0, 10); return !max || f > max ? f : max; }, null);
+  const diasTranscurridos = new Date(ultimaFecha + 'T00:00:00Z').getUTCDate();
+  const diasDelMes = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
+  const proyeccion = diasTranscurridos > 0 ? (acumulado / diasTranscurridos) * diasDelMes : 0;
+  return { acumulado, diasTranscurridos, diasDelMes, ultimaFecha, proyeccion };
+}
+function viewPresupuesto(){
+  destroyChart('presupuesto');
+  const sedeFilter = el('filterSede').value;
+  const { anio, mes } = currentAnioMes();
+  const mesPrefix = anio + '-' + String(mes).padStart(2, '0');
+  const diasDelMes = RAW_VENTAS.filter(d => String(d.fecha).slice(0, 7) === mesPrefix);
+  const sedesDelMes = (sedeFilter ? [sedeFilter] : Array.from(new Set(diasDelMes.map(d => d.sedeName)))).sort();
+
+  const porSede = sedesDelMes.map(sedeName => {
+    const proj = computeProjection(diasDelMes.filter(d => d.sedeName === sedeName), anio, mes);
+    const presupuesto = Number((RAW_PRESUPUESTOS.find(p => p.sedeName === sedeName && p.anio === anio && p.mes === mes) || {}).monto || 0);
+    return { sedeName, proj, presupuesto };
   });
+
+  const totalAcumulado = porSede.reduce((a, s) => a + (s.proj ? s.proj.acumulado : 0), 0);
+  const totalProyeccion = porSede.reduce((a, s) => a + (s.proj ? s.proj.proyeccion : 0), 0);
+  const totalPresupuesto = porSede.reduce((a, s) => a + s.presupuesto, 0);
+  const pct = totalPresupuesto > 0 ? totalProyeccion / totalPresupuesto : null;
+  const cumple = pct != null && pct >= 1;
+
+  el('presuKpiGrid').innerHTML =
+    '<div class="kpi-card"><div class="kpi-label">Presupuesto del mes' + (sedeFilter ? '' : ' (total)') + '</div><div class="kpi-value">' + fmtCOP(totalPresupuesto) + '</div></div>' +
+    '<div class="kpi-card"><div class="kpi-label">Acumulado del mes</div><div class="kpi-value">' + fmtCOP(totalAcumulado) + '</div></div>' +
+    '<div class="kpi-card ' + (pct == null ? '' : (cumple ? 'kpi-pos' : 'kpi-neg')) + '"><div class="kpi-label">Proyección de cierre</div><div class="kpi-value">' + fmtCOP(totalProyeccion) + '</div></div>' +
+    '<div class="kpi-card ' + (pct == null ? '' : (cumple ? 'kpi-pos' : 'kpi-neg')) + '"><div class="kpi-label">' + (pct == null ? 'Sin meta cargada' : (cumple ? '✓ Proyecta a CUMPLIR la meta' : '⚠ Proyecta a NO cumplir')) + '</div><div class="kpi-value">' + (pct == null ? '—' : fmtPct(pct)) + '</div></div>';
+
+  const acumPorSede = porSede.map(s => s.proj ? s.proj.acumulado : 0);
+  const presPorSede = porSede.map(s => s.presupuesto);
+  const opts = chartOptions('Acumulado vs. presupuesto — mes en curso', null, fmtCOP);
+  opts.plugins.legend.display = true;
+  charts.presupuesto = new Chart(el('chartPresupuesto').getContext('2d'), {
+    type: 'bar',
+    data: { labels: sedesDelMes, datasets: [
+      { label: 'Acumulado del mes', data: acumPorSede, backgroundColor: '#2be3a8', borderRadius: 6 },
+      { label: 'Presupuesto', data: presPorSede, backgroundColor: '#8892b0', borderRadius: 6 }
+    ] },
+    options: opts
+  });
+
+  el('presuTableBody').innerHTML = porSede.length ? porSede.map(s => {
+    const p = s.presupuesto > 0 && s.proj ? s.proj.proyeccion / s.presupuesto : null;
+    const cls = p == null ? '' : (p >= 1 ? 'diff-zero' : (p >= 0.9 ? '' : 'diff-neg'));
+    return '<tr><td class="left">' + s.sedeName + '</td><td>' + (s.proj ? fmtCOP(s.proj.acumulado) : '—') + '</td><td>' + (s.proj ? fmtCOP(s.proj.proyeccion) : '—') + '</td><td>' + (s.presupuesto > 0 ? fmtCOP(s.presupuesto) : '—') + '</td><td class="' + cls + '">' + (p == null ? '—' : fmtPct(p)) + '</td></tr>';
+  }).join('') : '<tr><td colspan="5" class="left">Sin ventas del mes en curso todavía.</td></tr>';
 }
 
 function refreshActiveView(){
   if (activeView === 'tiempo') viewTiempo();
   else if (activeView === 'sedes') viewSedes();
   else if (activeView === 'ranking') viewRanking();
+  else if (activeView === 'presupuesto') viewPresupuesto();
 }
 
 recomputeData();
@@ -611,7 +658,6 @@ refreshSedeOptions();
 initTheme();
 initTabs();
 initFilters();
-initSort();
 renderKpis();
 refreshActiveView();
 `;

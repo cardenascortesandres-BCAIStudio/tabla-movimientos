@@ -745,8 +745,12 @@ async function exportBalanceExcel() {
 async function downloadBalanceReport() {
   const banner = el('balanceSaveBanner');
   try {
-    const { weeks } = await balanceApi.getAllWeeks();
-    const html = buildBalanceReportHtml(weeks, chartJsRawSource, {});
+    const [{ weeks }, diasResult, presResult] = await Promise.all([
+      balanceApi.getAllWeeks(),
+      ventasApi.getAllDias().catch(() => ({ dias: [] })),
+      ventasApi.getPresupuestos().catch(() => ({ presupuestos: [] }))
+    ]);
+    const html = buildBalanceReportHtml(weeks, diasResult.dias || [], presResult.presupuestos || [], chartJsRawSource, {});
     downloadBlob(html, 'balance_comparativo.html', 'text/html');
   } catch (err) {
     banner.className = 'banner error';
@@ -1148,7 +1152,7 @@ function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInSc
 
 async function downloadReportesReport() {
   if (!reportesWeeks) return;
-  const html = buildBalanceReportHtml(reportesWeeks, ventasAllDias || [], chartJsRawSource, {});
+  const html = buildBalanceReportHtml(reportesWeeks, ventasAllDias || [], ventasPresupuestos || [], chartJsRawSource, {});
   downloadBlob(html, 'reportes_brangus.html', 'text/html');
 }
 
