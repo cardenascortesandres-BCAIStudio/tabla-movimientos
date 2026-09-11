@@ -263,8 +263,24 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   border-radius:20px;padding:6px 14px;font-size:12.5px;cursor:pointer;user-select:none;font-family:var(--font);
 }
 .sede-chip.active{color:var(--dv-text);border-color:var(--dv-chart-pos);background:linear-gradient(160deg,var(--dv-card-bg),var(--dv-card-bg2));}
-.period-chip-row{flex-wrap:nowrap;overflow-x:auto;padding-bottom:6px;}
-.period-chip-row .sede-chip{flex:0 0 auto;}
+.periodo-picker{position:relative;display:inline-block;}
+.periodo-popover{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:260px;max-width:80vw;
+  background:var(--dv-card-bg);border:1px solid var(--dv-border);border-radius:10px;
+  box-shadow:0 8px 30px rgba(0,0,0,.35);padding:10px;
+}
+.periodo-popover-actions{display:flex;gap:8px;margin-bottom:8px;}
+.periodo-popover-actions button{
+  flex:1;background:var(--dv-card-bg2);color:var(--dv-text);border:1px solid var(--dv-border);
+  border-radius:6px;padding:6px 8px;font-size:11.5px;cursor:pointer;font-family:var(--font);
+}
+.periodo-popover-list{max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;}
+.periodo-popover-list label{
+  display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;font-size:12.5px;
+  color:var(--dv-text);cursor:pointer;
+}
+.periodo-popover-list label:hover{background:var(--dv-card-bg2);}
+.periodo-popover-list input[type=checkbox]{accent-color:var(--dv-chart-pos);width:15px;height:15px;flex:0 0 auto;}
 .dash-filters{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
 .dash-filters select{
   background:var(--dv-select-bg);color:var(--dv-text);border:1px solid var(--dv-select-border);border-radius:7px;

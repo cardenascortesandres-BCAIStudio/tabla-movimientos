@@ -865,28 +865,49 @@ function renderReportes() {
 // todos). A pedido explícito del usuario: en "Mensual" debe poder elegir
 // solo algunos meses; al dejar una sola semana seleccionada, el gráfico de
 // tiempo hace drill-down a los días de esa semana (ver renderReportesCharts).
+// Botón "📅 Fechas" con panel desplegable: casillas + "seleccionar todos" /
+// "deseleccionar todos" — reemplaza la fila de chips (con muchas semanas se
+// volvía una tira horizontal incómoda de recorrer).
 function renderReportesPeriodChips(periodKeys, periodLabelOf, granularity) {
-  const box = el('reportesPeriodChips');
-  box.innerHTML = periodKeys.map(k =>
-    `<button type="button" class="sede-chip ${!reportesSelectedPeriods || reportesSelectedPeriods.has(k) ? 'active' : ''}" data-period="${escapeHtml(k)}">${escapeHtml(periodLabelOf(k))}</button>`
-  ).join('');
-  box.querySelectorAll('.sede-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
+  const list = el('reportesPeriodList');
+  list.innerHTML = periodKeys.slice().reverse().map(k => {
+    const checked = !reportesSelectedPeriods || reportesSelectedPeriods.has(k);
+    return `<label><input type="checkbox" data-period="${escapeHtml(k)}" ${checked ? 'checked' : ''}> ${escapeHtml(periodLabelOf(k))}</label>`;
+  }).join('');
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
       if (!reportesSelectedPeriods) reportesSelectedPeriods = new Set(periodKeys);
-      const k = chip.dataset.period;
-      if (reportesSelectedPeriods.has(k)) {
-        if (reportesSelectedPeriods.size > 1) reportesSelectedPeriods.delete(k); // no permitir dejar 0 periodos
-      } else {
-        reportesSelectedPeriods.add(k);
-      }
+      const k = cb.dataset.period;
+      if (cb.checked) reportesSelectedPeriods.add(k);
+      else if (reportesSelectedPeriods.size > 1) reportesSelectedPeriods.delete(k); // no permitir dejar 0
+      else cb.checked = true; // revertir: siempre debe quedar al menos 1 periodo
       if (reportesSelectedPeriods.size === periodKeys.length) reportesSelectedPeriods = null; // "todos" implícito
       renderReportes();
     });
   });
+
   const n = reportesSelectedPeriods ? reportesSelectedPeriods.size : periodKeys.length;
+  el('reportesPeriodBtn').textContent = n === periodKeys.length ? '📅 Fechas (todas)' : `📅 Fechas (${n})`;
   el('reportesPeriodHint').textContent = (granularity === 'week' && n === 1)
     ? '📅 Semana específica — "en el tiempo" muestra el detalle día a día (solo con la métrica Ventas).'
     : '';
+}
+
+function initPeriodPopover(btnId, popoverId, allBtnId, noneBtnId) {
+  const btn = el(btnId), popover = el(popoverId);
+  btn.addEventListener('click', (e) => { e.stopPropagation(); popover.classList.toggle('hidden-block'); });
+  document.addEventListener('click', (e) => { if (!popover.contains(e.target) && e.target !== btn) popover.classList.add('hidden-block'); });
+  el(allBtnId).addEventListener('click', () => {
+    reportesSelectedPeriods = null;
+    popover.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
+    renderReportes();
+  });
+  el(noneBtnId).addEventListener('click', () => {
+    const boxes = Array.from(popover.querySelectorAll('input[type=checkbox]'));
+    if (!boxes.length) return;
+    reportesSelectedPeriods = new Set([boxes[0].dataset.period]); // siempre queda al menos 1
+    renderReportes();
+  });
 }
 
 // Normaliza la métrica elegida a {seriesBySede} (Map sedeName -> Map
@@ -1682,6 +1703,7 @@ el('ventSaveBtn').addEventListener('click', saveVentDias);
 
 el('reportesTypeVentasBtn').addEventListener('click', () => switchReportesType('ventas'));
 el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
+initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodAllBtn', 'reportesPeriodNoneBtn');
 applyThemeMode();
 wireBalanceDropzone('ventRepDropzone', 'ventRepFileInput', handleVentRepFile);
 el('ventRepSaveBtn').addEventListener('click', saveVentRepDias);

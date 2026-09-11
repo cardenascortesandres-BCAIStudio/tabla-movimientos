@@ -76,8 +76,18 @@ ${VIEWER_CSS}
       <option value="venta">Ventas</option>
     </select>
     <select id="filterSede"></select>
-    <select id="filterPeriodo"></select>
+    <div class="periodo-picker">
+      <button type="button" class="theme-btn" id="periodoBtn">📅 Fechas</button>
+      <div class="periodo-popover hidden-block" id="periodoPopover">
+        <div class="periodo-popover-actions">
+          <button type="button" id="periodoAllBtn">Seleccionar todos</button>
+          <button type="button" id="periodoNoneBtn">Deseleccionar todos</button>
+        </div>
+        <div class="periodo-popover-list" id="periodoList"></div>
+      </div>
+    </div>
   </div>
+  <p class="hint" id="periodoHint"></p>
 
   <section class="view-panel" id="view-tiempo"><div class="chart-box"><canvas id="chartTiempo"></canvas></div></section>
   <section class="view-panel hidden-block" id="view-sedes"><div class="chart-box"><canvas id="chartSedes"></canvas></div></section>
@@ -157,6 +167,24 @@ table.dtable td.left{text-align:left;}
 .diff-neg{color:#ff3b6e;font-weight:700;}
 .diff-zero{color:#2be3a8;font-weight:700;}
 .hint{font-size:11.5px;color:var(--muted);margin-top:18px;}
+
+.periodo-picker{position:relative;display:inline-block;}
+.periodo-popover{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:260px;max-width:80vw;background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.35);padding:10px;}
+.periodo-popover-actions{display:flex;gap:8px;margin-bottom:8px;}
+.periodo-popover-actions button{flex:1;background:var(--dash-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:11.5px;cursor:pointer;font-family:inherit;}
+.periodo-popover-list{max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;}
+.periodo-popover-list label{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;font-size:12.5px;color:var(--text);cursor:pointer;}
+.periodo-popover-list label:hover{background:var(--dash-bg);}
+.periodo-popover-list input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;flex:0 0 auto;}
+
+/* Brillo al pasar el mouse — mismo efecto que el dashboard en pantalla
+   (rgba fijo en vez de color-mix() para que se vea igual en navegadores
+   viejos, ya que este archivo se abre offline en el navegador que sea). */
+.kpi-card{transition:box-shadow .15s,transform .15s;}
+.kpi-card:hover{box-shadow:0 0 0 1px var(--accent),0 0 22px 4px rgba(62,168,255,.35);transform:translateY(-1px);}
+.theme-btn:hover,.view-tab:hover,.chip:hover,.periodo-popover-actions button:hover,.filters select:hover,.chart-dl-btn:hover{
+  box-shadow:0 0 0 2px var(--accent),0 0 14px 2px rgba(62,168,255,.45);
+}
 `;
 
 // Agregación semanal/mensual/anual — puerto en JS plano (sin imports, corre
@@ -306,16 +334,49 @@ function initTabs(){
   });
 }
 
+let selectedPeriods = null; // Set<periodKey> | null (null = todos)
+
 function recomputeData(){
   const granularity = el('filterGranularidad').value;
   currentData = aggregateByPeriod(RAW_WEEKS, granularity);
   currentVentaData = aggregateVentasByPeriod(RAW_VENTAS, granularity);
+  selectedPeriods = null;
+  renderPeriodPopover();
+}
+
+// Botón "📅 Fechas" con panel: casillas + "seleccionar todos"/"deseleccionar
+// todos" — mismo patrón que el dashboard en pantalla (Reportes > Balance).
+function renderPeriodPopover(){
   const data = activeSource();
-  const periodoSel = el('filterPeriodo');
-  periodoSel.innerHTML = data.periodKeysSorted.slice().reverse().map(k => {
+  const list = el('periodoList');
+  list.innerHTML = data.periodKeysSorted.slice().reverse().map(k => {
     const label = (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k;
-    return '<option value="' + k + '">' + label + '</option>';
+    const checked = !selectedPeriods || selectedPeriods.has(k);
+    return '<label><input type="checkbox" data-period="' + k + '" ' + (checked ? 'checked' : '') + '> ' + escapeHtmlJs(label) + '</label>';
   }).join('');
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (!selectedPeriods) selectedPeriods = new Set(data.periodKeysSorted);
+      const k = cb.dataset.period;
+      if (cb.checked) selectedPeriods.add(k);
+      else if (selectedPeriods.size > 1) selectedPeriods.delete(k);
+      else cb.checked = true; // siempre debe quedar al menos 1 periodo
+      if (selectedPeriods.size === data.periodKeysSorted.length) selectedPeriods = null;
+      const n2 = selectedPeriods ? selectedPeriods.size : data.periodKeysSorted.length;
+      el('periodoBtn').textContent = selectedPeriods ? '📅 Fechas (' + n2 + ')' : '📅 Fechas (todas)';
+      el('periodoHint').textContent = (data.granularity === 'week' && n2 === 1 && el('filterMetrica').value === 'venta')
+        ? '📅 Semana específica — "Serie de tiempo" muestra el detalle día a día.' : '';
+      renderKpis(); refreshActiveView();
+    });
+  });
+  el('periodoBtn').textContent = selectedPeriods ? '📅 Fechas (' + selectedPeriods.size + ')' : '📅 Fechas (todas)';
+  const n = selectedPeriods ? selectedPeriods.size : data.periodKeysSorted.length;
+  el('periodoHint').textContent = (data.granularity === 'week' && n === 1 && el('filterMetrica').value === 'venta')
+    ? '📅 Semana específica — "Serie de tiempo" muestra el detalle día a día.' : '';
+}
+function periodsInScope(){
+  const data = activeSource();
+  return selectedPeriods ? data.periodKeysSorted.filter(k => selectedPeriods.has(k)) : data.periodKeysSorted;
 }
 
 function initFilters(){
@@ -327,12 +388,27 @@ function initFilters(){
     refreshActiveView();
   });
   sedeSel.addEventListener('change', () => { renderKpis(); refreshActiveView(); });
-  el('filterPeriodo').addEventListener('change', () => { renderKpis(); refreshActiveView(); });
   el('filterGranularidad').addEventListener('change', () => {
     recomputeData();
     refreshSedeOptions();
     renderKpis();
     refreshActiveView();
+  });
+  const btn = el('periodoBtn'), popover = el('periodoPopover');
+  btn.addEventListener('click', (e) => { e.stopPropagation(); popover.classList.toggle('hidden-block'); });
+  document.addEventListener('click', (e) => { if (!popover.contains(e.target) && e.target !== btn) popover.classList.add('hidden-block'); });
+  el('periodoAllBtn').addEventListener('click', () => {
+    selectedPeriods = null;
+    popover.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
+    el('periodoBtn').textContent = '📅 Fechas (todas)';
+    renderKpis(); refreshActiveView();
+  });
+  el('periodoNoneBtn').addEventListener('click', () => {
+    const boxes = Array.from(popover.querySelectorAll('input[type=checkbox]'));
+    if (!boxes.length) return;
+    selectedPeriods = new Set([boxes[0].dataset.period]);
+    renderPeriodPopover();
+    renderKpis(); refreshActiveView();
   });
 }
 function refreshSedeOptions(){
@@ -371,7 +447,8 @@ function renderKpis(){
   const data = activeSource();
   const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
   const allPoints = series.flatMap(s => s.points);
-  const period = el('filterPeriodo').value || data.periodKeysSorted[data.periodKeysSorted.length - 1];
+  const scope = periodsInScope();
+  const period = scope[scope.length - 1];
   const periodPoints = allPoints.filter(p => p.periodKey === period);
   const periodLabelTxt = (periodPoints[0] || {}).periodLabel || period;
   const sedeLabel = sedeFilter ? ' — ' + sedeFilter : '';
@@ -409,11 +486,33 @@ function viewTiempo(){
   const metric = el('filterMetrica').value;
   const sedeFilter = el('filterSede').value;
   const data = activeSource();
+  const scope = periodsInScope();
   const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
-  const labels = data.periodKeysSorted.map(k => (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
+
+  // Drill-down: UNA sola semana seleccionada + métrica Ventas -> detalle día
+  // a día (ventas_dias es la única fuente con datos diarios reales).
+  if (metric === 'venta' && data.granularity === 'week' && scope.length === 1) {
+    const weekStart = scope[0];
+    const dias = [];
+    for (let i = 0; i < 7; i++) { const d = new Date(weekStart + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + i); dias.push(d.toISOString().slice(0, 10)); }
+    const sedeNames = sedeFilter ? [sedeFilter] : data.sedeNames;
+    const rows = sedeFilter ? RAW_VENTAS.filter(r => r.sedeName === sedeFilter) : RAW_VENTAS;
+    const datasets = sedeNames.map((sedeName, i) => {
+      const byFecha = new Map(rows.filter(r => r.sedeName === sedeName).map(r => [String(r.fecha).slice(0, 10), r.valorVenta]));
+      return { label: sedeName, data: dias.map(f => byFecha.has(f) ? byFecha.get(f) : null), borderColor: colorForSedeIndex(i), backgroundColor: colorForSedeIndex(i), spanGaps: true, tension: .25 };
+    });
+    const DIAS_SEMANA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+    const diaLabels = dias.map(f => { const d = new Date(f + 'T00:00:00Z'); return DIAS_SEMANA[d.getUTCDay()] + ' ' + String(d.getUTCDate()).padStart(2, '0'); });
+    const opts = chartOptions('Ventas por día — semana del ' + weekStart, null, metricFormatter(metric));
+    opts.plugins.legend.display = datasets.length > 1;
+    charts.tiempo = new Chart(el('chartTiempo').getContext('2d'), { type: 'line', data: { labels: diaLabels, datasets }, options: opts });
+    return;
+  }
+
+  const labels = scope.map(k => (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
   const datasets = series.map((s, i) => {
     const byPeriod = new Map(s.points.map(p => [p.periodKey, pointValue(metric, p)]));
-    return { label: s.sedeName, data: data.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: colorForSedeIndex(i), backgroundColor: colorForSedeIndex(i), spanGaps: true, tension: .25 };
+    return { label: s.sedeName, data: scope.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: colorForSedeIndex(i), backgroundColor: colorForSedeIndex(i), spanGaps: true, tension: .25 };
   });
   const ctx = el('chartTiempo').getContext('2d');
   const opts = chartOptions(METRIC_LABELS[metric] + ' por ' + GRAN_LABELS[data.granularity], null, metricFormatter(metric));
@@ -425,24 +524,44 @@ function viewSedes(){
   destroyChart('sedes');
   const metric = el('filterMetrica').value;
   const data = activeSource();
-  const period = el('filterPeriodo').value || data.periodKeysSorted[data.periodKeysSorted.length - 1];
-  const rows = (data.byPeriod.find(w => w.periodKey === period) || { points: [] }).points;
-  const label = (rows[0] || {}).periodLabel || period;
-  // Ordenado de mayor a menor (el mejor resultado primero, a la izquierda).
-  const sorted = rows.slice().sort((a, b) => pointValue(metric, b) - pointValue(metric, a));
-  const labels = sorted.map(r => r.sedeName);
-  const values = sorted.map(r => pointValue(metric, r));
+  const scope = periodsInScope();
+  const sedeFilter = el('filterSede').value;
+  const sedeNames = sedeFilter ? [sedeFilter] : data.sedeNames;
+  // Suma de los periodos seleccionados por sede (con 1 solo periodo
+  // seleccionado, equivale a "ese periodo"); para % se pondera (utilidad
+  // total / venta total), promediar el % directamente sería incorrecto.
+  let pairs;
+  if (metric === 'margenPct') {
+    const rawPts = data.bySede.filter(s => !sedeFilter || s.sedeName === sedeFilter).flatMap(s => s.points.filter(p => scope.includes(p.periodKey)));
+    pairs = sedeNames.map(sedeName => {
+      const pts = rawPts.filter(p => p.sedeName === sedeName);
+      const tv = pts.reduce((a, p) => a + p.totalVentas, 0), tu = pts.reduce((a, p) => a + p.utilidadBruta, 0);
+      return [sedeName, tv === 0 ? 0 : tu / tv];
+    });
+  } else {
+    pairs = sedeNames.map(sedeName => {
+      const s = data.bySede.find(s => s.sedeName === sedeName);
+      const pts = (s ? s.points : []).filter(p => scope.includes(p.periodKey));
+      return [sedeName, pts.reduce((a, p) => a + pointValue(metric, p), 0)];
+    });
+  }
+  pairs.sort((a, b) => b[1] - a[1]); // descendente: el mejor resultado primero
+  const labels = pairs.map(([s]) => s);
+  const values = pairs.map(([, v]) => v);
+  const scopeLabel = scope.length === 1 ? ((data.byPeriod.find(p => p.periodKey === scope[0]) || {}).points[0]?.periodLabel || scope[0]) : scope.length + ' periodo(s)';
   const ctx = el('chartSedes').getContext('2d');
-  // Un color por sede (no rojo/verde por signo) — el objetivo de esta vista
-  // es distinguir sedes entre sí, no si el valor es positivo/negativo.
-  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map((_, i) => colorForSedeIndex(i)), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + label, null, metricFormatter(metric)) });
+  // Un color por sede (no rojo/verde por signo, mismo color que en el
+  // gráfico de tiempo) — el objetivo de esta vista es distinguir sedes.
+  const colorOf = (sedeName) => colorForSedeIndex(sedeNames.indexOf(sedeName));
+  charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map(colorOf), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + scopeLabel, null, metricFormatter(metric)) });
 }
 
 let sortState = { key: 'periodKey', dir: -1 };
 function viewRanking(){
   const metric = el('filterMetrica').value;
+  const scope = periodsInScope();
   if (metric === 'venta') {
-    let rows = currentVentaData.bySede.flatMap(s => s.points);
+    let rows = currentVentaData.bySede.flatMap(s => s.points).filter(r => scope.includes(r.periodKey));
     const sede = el('filterSede').value;
     if (sede) rows = rows.filter(r => r.sedeName === sede);
     rows = rows.slice().sort((a, b) => {
@@ -456,7 +575,7 @@ function viewRanking(){
     ).join('') || '<tr><td colspan="5" class="left">Sin ventas guardadas todavía.</td></tr>';
     return;
   }
-  let rows = currentData.bySede.flatMap(s => s.points);
+  let rows = currentData.bySede.flatMap(s => s.points).filter(r => scope.includes(r.periodKey));
   const sede = el('filterSede').value;
   if (sede) rows = rows.filter(r => r.sedeName === sede);
   rows = rows.slice().sort((a, b) => {
