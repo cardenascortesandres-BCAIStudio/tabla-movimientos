@@ -115,7 +115,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 .badge-ok{background:var(--verde-bg);color:var(--verde-ok);}
 .badge-warn{background:var(--amarillo-bg);color:#8a6d00;}
 .badge-err{background:var(--rojo-bg);color:var(--rojo-2);}
-.hidden-block{display:none;}
+.hidden-block{display:none !important;}
 
 /* ---- Pantalla inicial: elección de flujo (Sello de Calidad) ---- */
 .mode-choice{padding:26px 24px;background:#fdfaf4;border-color:#e6d9bd;}

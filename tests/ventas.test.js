@@ -82,7 +82,7 @@ describe('presupuestoFileParse', () => {
     ];
   }
 
-  it('parsea el monto de presupuesto por sede, ignorando la fila TOTAL', () => {
+  it('parsea el monto de presupuesto por sede, ignorando la fila TOTAL y Planta Pollo (descontinuada)', () => {
     const result = parsePresupuestoFile(buildFixtureRows());
     expect(result).not.toBeNull();
     expect(result.sedes).toEqual([
@@ -93,7 +93,6 @@ describe('presupuestoFileParse', () => {
       { sedeName: 'VILLA DEL LAGO', monto: 320000000 },
       { sedeName: 'NARANJOS', monto: 350000000 },
       { sedeName: 'CHIMINANGOS', monto: 230000000 },
-      { sedeName: 'PLANTA POLLO', monto: 230000000 },
     ]);
   });
 

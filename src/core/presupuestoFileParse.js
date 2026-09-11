@@ -10,6 +10,12 @@
 
 import { normText } from './normalize.js';
 
+// Punto de venta descontinuado (a pedido explícito del usuario, 2026-09-11):
+// el archivo de la empresa lo sigue listando, pero ya no debe entrar a la
+// plataforma — se ignora acá para no reintroducirlo cada vez que se vuelva a
+// subir PRESUPUESTO.xlsx.
+const SEDES_EXCLUIDAS = ['PLANTA POLLO'];
+
 export function detectPresupuestoHeaderRow(rows, maxScan = 10) {
   const limit = Math.min(rows.length, maxScan);
   for (let r = 0; r < limit; r++) {
@@ -42,7 +48,7 @@ export function parsePresupuestoFile(rows) {
     const row = rows[r] || [];
     const sedeCell = row[colSede];
     const sedeName = sedeCell != null ? String(sedeCell).trim() : '';
-    if (!sedeName || normText(sedeName) === 'TOTAL') continue;
+    if (!sedeName || normText(sedeName) === 'TOTAL' || SEDES_EXCLUIDAS.includes(normText(sedeName))) continue;
 
     const monto = numOrNull(row[colMonto]);
     if (monto == null) continue;

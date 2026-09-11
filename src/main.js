@@ -757,8 +757,12 @@ async function downloadBalanceReport() {
 
 // ---------------- Reportes ----------------
 let reportesWeeks = null; // filas crudas de balance_weeks (todas las sedes), cargadas una vez por visita
-let chartReportesMargen, chartReportesUtilidad;
+let chartReportesMargen, chartReportesUtilidad, chartReportesRanking, chartReportesPresupuesto;
 let reportesSelectedPeriods = null; // Set<periodKey> | null (null = todos los periodos disponibles)
+// Sub-vista activa del dashboard unificado: 'tiempo' | 'sedes' | 'ranking' | 'presupuesto'.
+// "presupuesto" ignora el selector de métrica/granularidad (siempre es venta
+// real del mes en curso contra la meta) — las otras 3 sí dependen de ellos.
+let reportesSubView = 'tiempo';
 
 async function loadReportesData() {
   el('reportesView').classList.add('hidden-block');
@@ -869,8 +873,27 @@ function renderReportes() {
       <div class="kpi-card ${scopeUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad acumulada (periodos seleccionados)</div><div class="kpi-value">${fmtCOP(scopeUtilidad)}</div></div>`;
   }
 
-  renderReportesCharts(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf);
-  renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
+  el('reportesDetalleWrap').classList.toggle('hidden-block', reportesSubView === 'presupuesto');
+  if (reportesSubView === 'presupuesto') {
+    renderReportesPresupuestoView(sedeFilter);
+  } else if (reportesSubView === 'sedes') {
+    renderReportesSedesChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf);
+  } else if (reportesSubView === 'ranking') {
+    renderReportesRankingChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf);
+  } else {
+    renderReportesTiempoChart(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf);
+  }
+  if (reportesSubView !== 'presupuesto') renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
+}
+
+function switchReportesSubView(view) {
+  reportesSubView = view;
+  document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => btn.classList.toggle('tab-active', btn.dataset.subview === view));
+  el('reportesTiempoView').classList.toggle('hidden-block', view !== 'tiempo');
+  el('reportesSedesView').classList.toggle('hidden-block', view !== 'sedes');
+  el('reportesRankingView').classList.toggle('hidden-block', view !== 'ranking');
+  el('reportesPresupuestoView').classList.toggle('hidden-block', view !== 'presupuesto');
+  if (reportesWeeks) renderReportes();
 }
 
 // Chips para elegir QUÉ periodos entran en la comparación (por defecto,
@@ -935,7 +958,7 @@ function reportesMetricSeries(metric, data, ventaData) {
   return { seriesBySede };
 }
 
-function renderReportesCharts(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf) {
+function renderReportesTiempoChart(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf) {
   const palette = SEDE_PALETTE;
   const { seriesBySede } = reportesMetricSeries(metric, data, ventaData);
   const sedeNames = sedeFilter ? [sedeFilter] : Array.from(seriesBySede.keys());
@@ -973,9 +996,19 @@ function renderReportesCharts(metric, data, ventaData, sedeFilter, periodKeysInS
     tiempoOpts.plugins.legend.display = tiempoDatasets.length > 1;
     chartReportesMargen = new Chart(el('chartReportesMargen').getContext('2d'), { type: 'line', data: { labels, datasets: tiempoDatasets }, options: tiempoOpts });
   }
+}
 
-  // ---- "Comparativa entre sedes": suma (o margen ponderado) de los periodos
-  // seleccionados, ordenado de mayor a menor ----
+// "Comparativa entre sedes": suma (o margen ponderado) de los periodos
+// seleccionados, ordenado de mayor a menor.
+function renderReportesSedesChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf) {
+  const palette = SEDE_PALETTE;
+  const { seriesBySede } = reportesMetricSeries(metric, data, ventaData);
+  const sedeNames = sedeFilter ? [sedeFilter] : Array.from(seriesBySede.keys());
+  const metricLabel = REPORTES_METRIC_LABELS[metric];
+  const isPercentMetric = metric === 'margenPct';
+  const valueFmt = isPercentMetric ? fmtPct : fmtCOP;
+  const singlePeriod = periodKeysInScope.length === 1 ? periodKeysInScope[0] : null;
+
   if (chartReportesUtilidad) chartReportesUtilidad.destroy();
   let barPairs;
   if (isPercentMetric) {
@@ -1007,6 +1040,91 @@ function renderReportesCharts(metric, data, ventaData, sedeFilter, periodKeysInS
     type: 'bar', data: { labels: barLabels, datasets: [{ data: barValues, backgroundColor: barColors, borderRadius: 6 }] },
     options: Object.assign(dashboardChartOptions(metricLabel + ' — ' + scopeLabel, 'reportesView', valueFmt), { indexAxis: 'y' })
   });
+}
+
+// "Ranking": a diferencia de "Comparativa entre sedes" (que SUMA los periodos
+// seleccionados por sede), acá cada barra es un (sede, periodo) individual —
+// responde "cuál fue mi mejor semana/mes/año, en cualquier sede", no solo
+// "cuál sede vendió más en total".
+function renderReportesRankingChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf) {
+  if (chartReportesRanking) chartReportesRanking.destroy();
+  const metricLabel = REPORTES_METRIC_LABELS[metric];
+  const isPercentMetric = metric === 'margenPct';
+  const valueFmt = isPercentMetric ? fmtPct : fmtCOP;
+  const source = metric === 'venta' ? ventaData : data;
+  const sedeNamesAll = Array.from(source.bySede.keys());
+
+  let rows = Array.from(source.bySede.entries()).flatMap(([sedeName, points]) =>
+    points.filter(p => periodKeysInScope.includes(p.periodKey))
+      .map(p => ({ sedeName, periodKey: p.periodKey, value: metric === 'venta' ? p.valorVenta : p[metric] }))
+  );
+  if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
+  rows.sort((a, b) => b.value - a.value);
+  const top = rows.slice(0, 15);
+
+  const labels = top.map(r => `${r.sedeName} — ${periodLabelOf(r.periodKey)}`);
+  const values = top.map(r => r.value);
+  const colors = top.map(r => SEDE_PALETTE[sedeNamesAll.indexOf(r.sedeName) % SEDE_PALETTE.length]);
+  const opts = Object.assign(dashboardChartOptions(`Ranking — ${metricLabel} (mejores periodos)`, 'reportesView', valueFmt), { indexAxis: 'y' });
+  opts.plugins.legend.display = false;
+  chartReportesRanking = new Chart(el('chartReportesRanking').getContext('2d'), {
+    type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 6 }] }, options: opts
+  });
+}
+
+// "Presupuesto": a diferencia de las otras 3 sub-vistas, ignora el selector
+// de métrica/granularidad/fechas — siempre es venta real del MES EN CURSO
+// contra la meta que dio la empresa (ver computeProjection en
+// src/ventas/ventasDashboardData.js), respetando solo el filtro de sede.
+function renderReportesPresupuestoView(sedeFilter) {
+  const { anio, mes } = currentAnioMes();
+  const mesPrefix = `${anio}-${String(mes).padStart(2, '0')}`;
+  const diasDelMes = (ventasAllDias || []).filter(d => String(d.fecha).slice(0, 7) === mesPrefix);
+  const sedesDelMes = (sedeFilter ? [sedeFilter] : Array.from(new Set(diasDelMes.map(d => d.sede_name)))).sort();
+
+  const porSede = sedesDelMes.map(sedeName => {
+    const proj = computeProjection(diasDelMes.filter(d => d.sede_name === sedeName), anio, mes);
+    const presupuesto = Number((ventasPresupuestos || []).find(p => p.sede_name === sedeName && p.anio === anio && p.mes === mes)?.monto || 0);
+    return { sedeName, proj, presupuesto };
+  });
+
+  const totalAcumulado = porSede.reduce((a, s) => a + (s.proj ? s.proj.acumulado : 0), 0);
+  const totalProyeccion = porSede.reduce((a, s) => a + (s.proj ? s.proj.proyeccion : 0), 0);
+  const totalPresupuesto = porSede.reduce((a, s) => a + s.presupuesto, 0);
+  const pctProyectado = totalPresupuesto > 0 ? totalProyeccion / totalPresupuesto : null;
+  const cumple = pctProyectado != null && pctProyectado >= 1;
+
+  el('reportesPresupuestoKpiGrid').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Presupuesto del mes${sedeFilter ? '' : ' (total)'}</div><div class="kpi-value">${fmtCOP(totalPresupuesto)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Acumulado del mes</div><div class="kpi-value">${fmtCOP(totalAcumulado)}</div></div>
+    <div class="kpi-card ${pctProyectado == null ? '' : (cumple ? 'kpi-pos' : 'kpi-neg')}"><div class="kpi-label">Proyección de cierre</div><div class="kpi-value">${fmtCOP(totalProyeccion)}</div></div>
+    <div class="kpi-card ${pctProyectado == null ? '' : (cumple ? 'kpi-pos' : 'kpi-neg')}"><div class="kpi-label">${pctProyectado == null ? 'Sin meta cargada' : (cumple ? '✓ Proyecta a CUMPLIR la meta' : '⚠ Proyecta a NO cumplir')}</div><div class="kpi-value">${pctProyectado == null ? '—' : fmtPct(pctProyectado)}</div></div>`;
+
+  if (chartReportesPresupuesto) chartReportesPresupuesto.destroy();
+  const acumPorSede = porSede.map(s => s.proj ? s.proj.acumulado : 0);
+  const presPorSede = porSede.map(s => s.presupuesto);
+  const opts = dashboardChartOptions('Acumulado vs. presupuesto — mes en curso', 'reportesView');
+  opts.plugins.legend.display = true;
+  chartReportesPresupuesto = new Chart(el('chartReportesPresupuesto').getContext('2d'), {
+    type: 'bar',
+    data: { labels: sedesDelMes, datasets: [
+      { label: 'Acumulado del mes', data: acumPorSede, backgroundColor: dashVar('--dv-chart-pos', 'reportesView'), borderRadius: 6 },
+      { label: 'Presupuesto', data: presPorSede, backgroundColor: dashVar('--dv-text-muted', 'reportesView'), borderRadius: 6 }
+    ] },
+    options: opts
+  });
+
+  el('reportesProyeccionTableBody').innerHTML = porSede.length ? porSede.map(s => {
+    const pct = s.presupuesto > 0 && s.proj ? s.proj.proyeccion / s.presupuesto : null;
+    const cls = pct == null ? '' : (pct >= 1 ? 'diff-zero' : (pct >= 0.9 ? '' : 'diff-neg'));
+    return `<tr>
+      <td class="left">${escapeHtml(s.sedeName)}</td>
+      <td>${s.proj ? fmtCOP(s.proj.acumulado) : '—'}</td>
+      <td>${s.proj ? fmtCOP(s.proj.proyeccion) : '—'}</td>
+      <td>${s.presupuesto > 0 ? fmtCOP(s.presupuesto) : '—'}</td>
+      <td class="${cls}">${pct == null ? '—' : fmtPct(pct)}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" class="left hint">Sin ventas del mes en curso todavía.</td></tr>';
 }
 
 function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope) {
@@ -1420,7 +1538,6 @@ async function downloadAudReportesReport() {
 // gestiona el presupuesto mensual por sede.
 let ventasAllDias = null;       // filas crudas de ventas_dias (todas las sedes) — compartido con Reportes > Balance
 let ventasPresupuestos = null;  // filas crudas de presupuestos_mensuales
-let chartVentPresupuesto;
 
 // Fábrica reusada por las 2 zonas de carga de ventas (pantalla inicial y
 // pestaña Presupuesto): acepta VARIOS archivos a la vez (uno por sede),
@@ -1627,12 +1744,10 @@ const presuUploader = createPresupuestoUploader({
   const presResult = await ventasApi.getPresupuestos();
   ventasPresupuestos = presResult.presupuestos || [];
   renderPresupuestoTable();
-  renderVentPresupuestoChart();
-  renderProyeccionTable();
+  if (reportesWeeks) renderReportes(); // refresca la sub-vista "🎯 Presupuesto" si está unificada y visible
 });
 
 async function loadVentReportesData() {
-  el('reportesVentView').classList.add('hidden-block');
   el('ventReportesErrorBanner').classList.add('hidden-block');
   el('ventReportesLoadingHint').classList.remove('hidden-block');
   el('ventReportesLoadingHint').textContent = 'Cargando historial…';
@@ -1647,10 +1762,8 @@ async function loadVentReportesData() {
     }
     el('ventReportesLoadingHint').classList.toggle('hidden-block', !diasResult.fromCache);
     if (diasResult.fromCache) el('ventReportesLoadingHint').textContent = 'Mostrando el último historial disponible en este equipo (sin conexión con el servidor ahora mismo).';
-    el('reportesVentView').classList.remove('hidden-block');
     renderPresupuestoTable();
-    renderVentPresupuestoChart();
-    renderProyeccionTable();
+    if (reportesWeeks) renderReportes(); // refresca la sub-vista "🎯 Presupuesto" si está unificada y visible
   } catch (err) {
     el('ventReportesLoadingHint').classList.add('hidden-block');
     const b = el('ventReportesErrorBanner');
@@ -1687,66 +1800,8 @@ function renderPresupuestoTable() {
       await ventasApi.savePresupuesto(btn.dataset.sede, anio, mes, monto);
       const presResult = await ventasApi.getPresupuestos();
       ventasPresupuestos = presResult.presupuestos || [];
-      renderVentPresupuestoChart();
-      renderProyeccionTable();
-      if (reportesWeeks) renderReportes(); // el presupuesto también alimenta el KPI de cumplimiento en Balance
+      if (reportesWeeks) renderReportes(); // el presupuesto también alimenta la sub-vista "🎯 Presupuesto" unificada
     });
-  });
-}
-
-// Cómo va a cerrar cada punto de venta según su ritmo actual (computeProjection,
-// ver src/ventas/ventasDashboardData.js) contra la meta que dio la empresa —
-// el seguimiento explícito que pidió el usuario, más allá del acumulado del
-// gráfico de barras de arriba.
-function renderProyeccionTable() {
-  const body = el('proyeccionTableBody');
-  if (!body) return;
-  if (!ventasAllDias || !ventasAllDias.length) {
-    body.innerHTML = '<tr><td colspan="5" class="left hint">Sin ventas cargadas todavía.</td></tr>';
-    return;
-  }
-  const { anio, mes } = currentAnioMes();
-  const mesPrefix = `${anio}-${String(mes).padStart(2, '0')}`;
-  const diasDelMes = ventasAllDias.filter(d => String(d.fecha).slice(0, 7) === mesPrefix);
-  const sedesDelMes = Array.from(new Set(diasDelMes.map(d => d.sede_name))).sort();
-
-  body.innerHTML = sedesDelMes.length ? sedesDelMes.map(sedeName => {
-    const proj = computeProjection(diasDelMes.filter(d => d.sede_name === sedeName), anio, mes);
-    const presupuesto = Number((ventasPresupuestos || []).find(p => p.sede_name === sedeName && p.anio === anio && p.mes === mes)?.monto || 0);
-    const pctProyectado = presupuesto > 0 && proj ? proj.proyeccion / presupuesto : null;
-    const cls = pctProyectado == null ? '' : (pctProyectado >= 1 ? 'diff-zero' : (pctProyectado >= 0.9 ? '' : 'diff-neg'));
-    return `<tr>
-      <td class="left">${escapeHtml(sedeName)}</td>
-      <td>${proj ? fmtCOP(proj.acumulado) : '—'}</td>
-      <td>${proj ? fmtCOP(proj.proyeccion) : '—'}</td>
-      <td>${presupuesto > 0 ? fmtCOP(presupuesto) : '—'}</td>
-      <td class="${cls}">${pctProyectado == null ? '—' : fmtPct(pctProyectado)}</td>
-    </tr>`;
-  }).join('') : '<tr><td colspan="5" class="left hint">Sin ventas del mes en curso todavía.</td></tr>';
-}
-
-// Único gráfico operativo de esta pestaña: acumulado del mes en curso vs.
-// presupuesto, por sede — la comparativa de venta en el tiempo / entre sedes
-// ya vive unificada en Reportes > Balance (selector de métrica "Venta real").
-function renderVentPresupuestoChart() {
-  if (!ventasAllDias) return;
-  const { anio, mes } = currentAnioMes();
-  const mesPrefix = `${anio}-${String(mes).padStart(2, '0')}`;
-  const diasDelMes = ventasAllDias.filter(d => String(d.fecha).slice(0, 7) === mesPrefix);
-  const sedesDelMes = Array.from(new Set(diasDelMes.map(d => d.sede_name))).sort();
-
-  if (chartVentPresupuesto) chartVentPresupuesto.destroy();
-  const acumPorSede = sedesDelMes.map(s => diasDelMes.filter(d => d.sede_name === s).reduce((a, d) => a + Number(d.valor_venta), 0));
-  const presPorSede = sedesDelMes.map(s => Number((ventasPresupuestos || []).find(p => p.sede_name === s && p.anio === anio && p.mes === mes)?.monto || 0));
-  const opts = dashboardChartOptions('Acumulado vs. presupuesto — mes en curso', 'reportesVentView');
-  opts.plugins.legend.display = true;
-  chartVentPresupuesto = new Chart(el('chartVentPresupuesto').getContext('2d'), {
-    type: 'bar',
-    data: { labels: sedesDelMes, datasets: [
-      { label: 'Acumulado del mes', data: acumPorSede, backgroundColor: dashVar('--dv-chart-pos', 'reportesVentView'), borderRadius: 6 },
-      { label: 'Presupuesto', data: presPorSede, backgroundColor: dashVar('--dv-text-muted', 'reportesVentView'), borderRadius: 6 }
-    ] },
-    options: opts
   });
 }
 
@@ -1756,7 +1811,7 @@ function renderVentPresupuestoChart() {
 // variables --dv-* ya definidas para el estilo "minimalista" (blanco) en vez
 // de inventar un tema nuevo — ver el bloque de comentario en main.css sobre
 // los 5 estilos seleccionables del Panel comparativo.
-const DASH_STYLE_CONTAINER_IDS = ['dashboardView', 'balanceResultsView', 'reportesView', 'reportesMovView', 'reportesAudView', 'reportesVentView'];
+const DASH_STYLE_CONTAINER_IDS = ['dashboardView', 'balanceResultsView', 'reportesView', 'reportesMovView', 'reportesAudView'];
 let themeMode = localStorage.getItem('themeMode') || 'dark';
 
 function applyThemeMode() {
@@ -1768,7 +1823,6 @@ function applyThemeMode() {
   if (reportesWeeks) renderReportes();
   if (movHistWeeks) renderMovHist();
   if (audHistAudits) renderAudReportes();
-  if (ventasAllDias) renderVentPresupuestoChart();
 }
 
 function toggleThemeMode() {
@@ -1815,6 +1869,9 @@ el('reportesMetrica').addEventListener('change', () => { reportesSelectedPeriods
 el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
 el('reportesSedeFilter').addEventListener('change', renderReportes);
 el('reportesDownloadBtn').addEventListener('click', downloadReportesReport);
+document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchReportesSubView(btn.dataset.subview));
+});
 
 el('reportesTypeBalanceBtn').addEventListener('click', () => switchReportesType('balance'));
 el('reportesTypeMovimientosBtn').addEventListener('click', () => switchReportesType('movimientos'));
