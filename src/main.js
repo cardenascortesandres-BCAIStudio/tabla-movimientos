@@ -477,6 +477,17 @@ function wireBalanceDropzone(dzId, inputId, onFile) {
   input.addEventListener('change', (e) => { if (e.target.files.length) onFile(e.target.files[0]); });
 }
 
+// Igual que wireBalanceDropzone, pero pasa TODOS los archivos soltados/elegidos
+// a la vez (uno por sede) — usado por las zonas de carga de Ventas Diarias.
+function wireMultiFileDropzone(dzId, inputId, onFiles) {
+  const dz = el(dzId); const input = el(inputId);
+  dz.addEventListener('click', () => input.click());
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('drag'); if (e.dataTransfer.files.length) onFiles(Array.from(e.dataTransfer.files)); });
+  input.addEventListener('change', (e) => { if (e.target.files.length) onFiles(Array.from(e.target.files)); });
+}
+
 function handleBalanceFileA(file) {
   if (!/\.(xlsx|xls)$/i.test(file.name)) { showBalanceError(`"${file.name}" no es .xlsx ni .xls.`); return; }
   const ctx = ensureBalanceCtx();
@@ -1401,129 +1412,134 @@ async function downloadAudReportesReport() {
   downloadBlob(html, 'auditorias_brangus.html', 'text/html');
 }
 
-// ---------------- Ventas Diarias (carga desde la pantalla inicial) ----------------
-let ventFileRows = null, ventParsedDias = null;
-
-function readVentasFile(file, onParsed, onError) {
-  if (!/\.(xlsx|xls)$/i.test(file.name)) { onError(`"${file.name}" no es .xlsx ni .xls.`); return; }
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
-      const parsed = parseVentasDiariasFile(rows);
-      if (!parsed) { onError('No se encontró la fila de encabezado ("Fecha"/"Kilos"/"Valor Venta") en este archivo — debe ser el reporte "Ventas Netas Por Dia" de Tecnocarnes.'); return; }
-      onParsed(rows, parsed);
-    } catch (err) {
-      onError('No se pudo leer el archivo: ' + err.message);
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function ventasPreviewHtml(parsed) {
-  const total = parsed.dias.reduce((a, d) => a + d.valorVenta, 0);
-  const kilos = parsed.dias.reduce((a, d) => a + (d.kilos || 0), 0);
-  return `
-    <div class="kpi-card"><div class="kpi-label">Días en el archivo</div><div class="kpi-value">${parsed.dias.length}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Rango de fechas</div><div class="kpi-value" style="font-size:16px">${parsed.dias[0].fecha} → ${parsed.dias[parsed.dias.length - 1].fecha}</div></div>
-    <div class="kpi-card kpi-pos"><div class="kpi-label">Venta total</div><div class="kpi-value">${fmtCOP(total)}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Kilos totales</div><div class="kpi-value">${fmt(kilos)}</div></div>`;
-}
-
-function handleVentFile(file) {
-  el('ventErrorBanner').classList.add('hidden-block');
-  el('ventFileName').textContent = file.name;
-  if (!el('ventSedeInput').value.trim()) el('ventSedeInput').value = guessSedeName(file.name.replace(/\b(ventas?|netas?|dia|por)\b/gi, '').trim() || file.name);
-  readVentasFile(file, (rows, parsed) => {
-    if (!el('ventSedeInput').value.trim()) {
-      const guessed = guessSedeFromVentasRows(rows, ventasAllDias ? Array.from(new Set(ventasAllDias.map(d => d.sede_name))) : []);
-      if (guessed) el('ventSedeInput').value = guessed;
-    }
-    ventFileRows = rows; ventParsedDias = parsed;
-    el('ventPreviewCard').classList.remove('hidden-block');
-    el('ventKpiGrid').innerHTML = ventasPreviewHtml(parsed);
-  }, showVentError);
-}
-
-function showVentError(msg) {
-  const b = el('ventErrorBanner');
-  b.classList.remove('hidden-block');
-  b.innerHTML = '⚠ ' + escapeHtml(msg);
-  el('ventPreviewCard').classList.add('hidden-block');
-}
-
-async function saveVentDias() {
-  if (!ventParsedDias) return;
-  const sedeName = el('ventSedeInput').value.trim();
-  const banner = el('ventSaveBanner');
-  if (!sedeName) {
-    banner.className = 'banner error'; banner.classList.remove('hidden-block');
-    banner.textContent = '⚠ Escribe la sede antes de guardar.';
-    return;
-  }
-  try {
-    const result = await ventasApi.saveDias(sedeName, ventParsedDias.dias);
-    banner.className = 'banner info'; banner.classList.remove('hidden-block');
-    banner.textContent = `✓ ${result.upserted} día(s) guardado(s)/actualizado(s) en el historial.`;
-    ventasAllDias = null; // fuerza recarga la próxima vez que se abra Reportes > Ventas
-  } catch (err) {
-    banner.className = 'banner error'; banner.classList.remove('hidden-block');
-    banner.textContent = '⚠ No se pudo guardar: ' + err.message;
-  }
-}
-
-// ---------------- Presupuesto y carga de Ventas ----------------
+// ---------------- Ventas Diarias (carga desde la pantalla inicial y desde Presupuesto) ----------------
 // La comparativa de venta/margen/utilidad vive unificada en Reportes >
 // Balance (ver renderReportes/renderReportesCharts arriba, que ya leen
-// ventasAllDias) — esta pestaña solo carga el archivo diario y gestiona el
-// presupuesto mensual por sede, con un único gráfico operativo (acumulado
-// del mes vs. presupuesto).
+// ventasAllDias) — esta pestaña/sección solo carga los archivos diarios y
+// gestiona el presupuesto mensual por sede.
 let ventasAllDias = null;       // filas crudas de ventas_dias (todas las sedes) — compartido con Reportes > Balance
 let ventasPresupuestos = null;  // filas crudas de presupuestos_mensuales
-let ventRepFileRows = null, ventRepParsedDias = null;
 let chartVentPresupuesto;
 
-function handleVentRepFile(file) {
-  el('ventRepErrorBanner').classList.add('hidden-block');
-  el('ventRepFileName').textContent = file.name;
-  if (!el('ventRepSedeInput').value.trim()) el('ventRepSedeInput').value = guessSedeName(file.name.replace(/\b(ventas?|netas?|dia|por)\b/gi, '').trim() || file.name);
-  readVentasFile(file, (rows, parsed) => {
-    if (!el('ventRepSedeInput').value.trim()) {
-      const guessed = guessSedeFromVentasRows(rows, ventasAllDias ? Array.from(new Set(ventasAllDias.map(d => d.sede_name))) : []);
-      if (guessed) el('ventRepSedeInput').value = guessed;
+// Fábrica reusada por las 2 zonas de carga de ventas (pantalla inicial y
+// pestaña Presupuesto): acepta VARIOS archivos a la vez (uno por sede),
+// detecta la sede de cada uno, y guarda todo en lote con progreso visible —
+// antes solo aceptaba un archivo, y con historiales largos (1000+ días) el
+// guardado tardaba minutos SIN ninguna señal, así que parecía que "no hacía
+// nada" (ver server/routes/ventas.js, ahora hace upsert por lotes en vez de
+// una consulta por día).
+function createVentUploader(ids, onSaved) {
+  let entries = []; // { fileName, sedeName, parsed, error }
+
+  function knownSedeNames() {
+    return ventasAllDias ? Array.from(new Set(ventasAllDias.map(d => d.sede_name))) : [];
+  }
+
+  function render() {
+    el(ids.filesList).innerHTML = entries.map((e, i) => {
+      if (e.error) {
+        return `<div class="vent-file-row vent-file-error">
+          <div class="vent-file-name">${escapeHtml(e.fileName)}</div>
+          <div class="vent-file-summary">⚠ ${escapeHtml(e.error)}</div>
+          <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
+        </div>`;
+      }
+      const total = e.parsed.dias.reduce((a, d) => a + d.valorVenta, 0);
+      return `<div class="vent-file-row">
+        <div class="vent-file-name">${escapeHtml(e.fileName)}</div>
+        <input type="text" data-sede-idx="${i}" value="${escapeHtml(e.sedeName)}" placeholder="Sede">
+        <div class="vent-file-summary">${e.parsed.dias.length} días · ${e.parsed.dias[0].fecha} → ${e.parsed.dias[e.parsed.dias.length - 1].fecha} · ${fmtCOP(total)}</div>
+        <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
+      </div>`;
+    }).join('') || '<p class="hint">No hay archivos cargados.</p>';
+    el(ids.filesList).querySelectorAll('input[data-sede-idx]').forEach(inp => {
+      inp.addEventListener('input', () => { entries[+inp.dataset.sedeIdx].sedeName = inp.value.trim(); });
+    });
+    el(ids.filesList).querySelectorAll('button[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => { entries.splice(+btn.dataset.remove, 1); render(); });
+    });
+    el(ids.previewCard).classList.toggle('hidden-block', entries.length === 0);
+  }
+
+  function handleFiles(files) {
+    el(ids.errorBanner).classList.add('hidden-block');
+    let pending = files.length;
+    files.forEach(file => {
+      if (!/\.(xlsx|xls)$/i.test(file.name)) {
+        entries.push({ fileName: file.name, error: `"${file.name}" no es .xlsx ni .xls.` });
+        if (--pending === 0) render();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+          const parsed = parseVentasDiariasFile(rows);
+          if (!parsed) {
+            entries.push({ fileName: file.name, error: 'No se encontró la fila de encabezado ("Fecha"/"Valor Venta") — debe ser el reporte "Ventas Netas Por Dia" de Tecnocarnes.' });
+          } else {
+            const guessedFromName = guessSedeName(file.name.replace(/\b(ventas?|netas?|dia|por)\b/gi, '').trim() || file.name);
+            const guessedFromContent = guessSedeFromVentasRows(rows, knownSedeNames());
+            entries.push({ fileName: file.name, sedeName: guessedFromContent || guessedFromName || '', parsed });
+          }
+        } catch (err) {
+          entries.push({ fileName: file.name, error: 'No se pudo leer el archivo: ' + err.message });
+        }
+        if (--pending === 0) render();
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function saveAll() {
+    const valid = entries.filter(e => !e.error && e.sedeName);
+    const banner = el(ids.saveBanner);
+    if (!valid.length) {
+      banner.className = 'banner error'; banner.classList.remove('hidden-block');
+      banner.textContent = '⚠ No hay archivos con sede válida para guardar (revisa el campo "Sede" de cada fila).';
+      return;
     }
-    ventRepFileRows = rows; ventRepParsedDias = parsed;
-    el('ventRepPreviewCard').classList.remove('hidden-block');
-    el('ventRepKpiGrid').innerHTML = ventasPreviewHtml(parsed);
-  }, (msg) => {
-    const b = el('ventRepErrorBanner');
-    b.classList.remove('hidden-block'); b.innerHTML = '⚠ ' + escapeHtml(msg);
-    el('ventRepPreviewCard').classList.add('hidden-block');
-  });
+    const btn = el(ids.saveBtn);
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    let totalUpserted = 0;
+    for (let i = 0; i < valid.length; i++) {
+      const e = valid[i];
+      btn.textContent = `Guardando ${i + 1}/${valid.length}…`;
+      banner.className = 'banner info'; banner.classList.remove('hidden-block');
+      banner.textContent = `Guardando ${i + 1} de ${valid.length}: ${e.sedeName} (${e.parsed.dias.length} días)…`;
+      try {
+        const result = await ventasApi.saveDias(e.sedeName, e.parsed.dias);
+        totalUpserted += result.upserted;
+      } catch (err) {
+        btn.disabled = false; btn.textContent = originalText;
+        banner.className = 'banner error';
+        banner.textContent = `⚠ Error guardando ${e.sedeName}: ${err.message}`;
+        return;
+      }
+    }
+    btn.disabled = false; btn.textContent = originalText;
+    banner.className = 'banner info';
+    banner.textContent = `✓ ${valid.length} sede(s) guardada(s) — ${totalUpserted} día(s) en total.`;
+    entries = [];
+    render();
+    ventasAllDias = null; // fuerza recarga
+    if (onSaved) await onSaved();
+  }
+
+  return { handleFiles, saveAll };
 }
 
-async function saveVentRepDias() {
-  if (!ventRepParsedDias) return;
-  const sedeName = el('ventRepSedeInput').value.trim();
-  const banner = el('ventRepSaveBanner');
-  if (!sedeName) {
-    banner.className = 'banner error'; banner.classList.remove('hidden-block');
-    banner.textContent = '⚠ Escribe la sede antes de guardar.';
-    return;
-  }
-  try {
-    const result = await ventasApi.saveDias(sedeName, ventRepParsedDias.dias);
-    banner.className = 'banner info'; banner.classList.remove('hidden-block');
-    banner.textContent = `✓ ${result.upserted} día(s) guardado(s)/actualizado(s).`;
-    ventasAllDias = null;
-    await loadVentReportesData();
-  } catch (err) {
-    banner.className = 'banner error'; banner.classList.remove('hidden-block');
-    banner.textContent = '⚠ No se pudo guardar: ' + err.message;
-  }
-}
+const ventUploader = createVentUploader({
+  errorBanner: 'ventErrorBanner', previewCard: 'ventPreviewCard', filesList: 'ventFilesList',
+  saveBtn: 'ventSaveBtn', saveBanner: 'ventSaveBanner'
+});
+const ventRepUploader = createVentUploader({
+  errorBanner: 'ventRepErrorBanner', previewCard: 'ventRepPreviewCard', filesList: 'ventRepFilesList',
+  saveBtn: 'ventRepSaveBtn', saveBanner: 'ventRepSaveBanner'
+}, loadVentReportesData);
 
 async function loadVentReportesData() {
   el('reportesVentView').classList.add('hidden-block');
@@ -1698,14 +1714,14 @@ el('audSaveBtn').addEventListener('click', saveAudit);
 
 el('modeVentasBtn').addEventListener('click', () => switchFlow('ventas'));
 el('backFromVentasBtn').addEventListener('click', () => switchFlow('choice'));
-wireBalanceDropzone('ventDropzone', 'ventFileInput', handleVentFile);
-el('ventSaveBtn').addEventListener('click', saveVentDias);
+wireMultiFileDropzone('ventDropzone', 'ventFileInput', ventUploader.handleFiles);
+el('ventSaveBtn').addEventListener('click', ventUploader.saveAll);
 
 el('reportesTypeVentasBtn').addEventListener('click', () => switchReportesType('ventas'));
 el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
 initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodAllBtn', 'reportesPeriodNoneBtn');
 applyThemeMode();
-wireBalanceDropzone('ventRepDropzone', 'ventRepFileInput', handleVentRepFile);
-el('ventRepSaveBtn').addEventListener('click', saveVentRepDias);
+wireMultiFileDropzone('ventRepDropzone', 'ventRepFileInput', ventRepUploader.handleFiles);
+el('ventRepSaveBtn').addEventListener('click', ventRepUploader.saveAll);
 
 switchFlow('choice');

@@ -33,23 +33,35 @@ ventasRouter.post('/dias', async (req, res, next) => {
     const slug = sedeSlug(sedeName);
     const canonicalName = await resolveCanonicalSedeName(query, slug, sedeName);
 
-    // Sin transacción envolvente (igual que balance.js/movimientos.js): cada
-    // fila es un upsert independiente e idempotente por (sede_slug, fecha),
-    // así que una falla a mitad de camino solo deja menos filas actualizadas
-    // — no hay riesgo de corrupción, y volver a subir el archivo lo completa.
+    // Upsert en LOTES (un solo INSERT multi-fila por lote) en vez de una
+    // consulta por día — con archivos de varios años (1000+ días por sede)
+    // el enfoque anterior tardaba minutos (cada viaje de ida y vuelta a la
+    // base de datos son ~100-200ms) sin ninguna señal visual, y parecía que
+    // "no hacía nada". Sin transacción envolvente (igual que antes): cada
+    // fila sigue siendo idempotente por (sede_slug, fecha), así que una
+    // falla a mitad de camino solo deja menos filas actualizadas.
+    const CHUNK = 300;
+    const validDias = dias.filter(d => d.fecha && typeof d.valorVenta === 'number');
     let upserted = 0;
-    for (const d of dias) {
-      if (!d.fecha || typeof d.valorVenta !== 'number') continue;
+    for (let i = 0; i < validDias.length; i += CHUNK) {
+      const chunk = validDias.slice(i, i + CHUNK);
+      const values = [];
+      const params = [];
+      chunk.forEach((d, idx) => {
+        const base = idx * 8;
+        values.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, now())`);
+        params.push(slug, canonicalName, d.fecha, d.kilos ?? null, d.unidades ?? null, d.descuento ?? null, d.nroClientes ?? null, d.valorVenta);
+      });
       await query(
         `insert into ventas_dias (sede_slug, sede_name, fecha, kilos, unidades, descuento, nro_clientes, valor_venta, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, now())
+         values ${values.join(', ')}
          on conflict (sede_slug, fecha)
          do update set sede_name = excluded.sede_name, kilos = excluded.kilos, unidades = excluded.unidades,
                        descuento = excluded.descuento, nro_clientes = excluded.nro_clientes,
                        valor_venta = excluded.valor_venta, updated_at = now()`,
-        [slug, canonicalName, d.fecha, d.kilos ?? null, d.unidades ?? null, d.descuento ?? null, d.nroClientes ?? null, d.valorVenta]
+        params
       );
-      upserted++;
+      upserted += chunk.length;
     }
     res.json({ ok: true, sedeSlug: slug, upserted });
   } catch (err) { next(err); }

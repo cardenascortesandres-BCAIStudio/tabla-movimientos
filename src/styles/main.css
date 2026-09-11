@@ -263,6 +263,11 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   border-radius:20px;padding:6px 14px;font-size:12.5px;cursor:pointer;user-select:none;font-family:var(--font);
 }
 .sede-chip.active{color:var(--dv-text);border-color:var(--dv-chart-pos);background:linear-gradient(160deg,var(--dv-card-bg),var(--dv-card-bg2));}
+.vent-file-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--gris-2);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fbfbfc;}
+.vent-file-row.vent-file-error{background:var(--rojo-bg);}
+.vent-file-row .vent-file-name{font-weight:600;font-size:13px;flex:1 1 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vent-file-row input[type=text]{padding:6px 9px;border:1px solid var(--gris-2);border-radius:6px;font-size:12.5px;width:150px;font-family:var(--font);}
+.vent-file-row .vent-file-summary{font-size:12px;color:#666;flex:1 1 260px;}
 .periodo-picker{position:relative;display:inline-block;}
 .periodo-popover{
   position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:260px;max-width:80vw;

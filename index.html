@@ -198,28 +198,21 @@
     <button type="button" class="btn-secondary back-btn" id="backFromVentasBtn">‹ Volver al inicio</button>
 
     <div class="card">
-      <h2 style="margin-top:0">Cargar ventas diarias de una sede</h2>
-      <p class="hint">El archivo trae siempre el histórico completo de la sede hasta hoy — puedes volver a subir el mismo archivo (recién descargado) todos los días, se actualiza solo por fecha, sin duplicar nada.</p>
-      <div class="fields">
-        <div class="field">
-          <label>Sede</label>
-          <input type="text" id="ventSedeInput" placeholder="Ej. Decepaz">
-        </div>
-      </div>
+      <h2 style="margin-top:0">Cargar ventas diarias (una o varias sedes)</h2>
+      <p class="hint">Cada archivo trae el histórico completo de esa sede hasta hoy — puedes volver a subir los mismos archivos todos los días, se actualiza solo por fecha, sin duplicar nada.</p>
       <div class="dropzone" id="ventDropzone">
         <p class="big">Ventas Netas Por Dia (Tecnocarnes)</p>
-        <p>El .xls que descargas de la plataforma — un archivo por sede</p>
-        <button type="button" class="dz-btn" onclick="document.getElementById('ventFileInput').click()">Seleccionar archivo</button>
-        <input type="file" id="ventFileInput" accept=".xlsx,.xls">
-        <p class="hint" id="ventFileName"></p>
+        <p>Puedes soltar varios archivos a la vez — uno por cada sede</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('ventFileInput').click()">Seleccionar archivo(s)</button>
+        <input type="file" id="ventFileInput" accept=".xlsx,.xls" multiple>
       </div>
       <div class="banner error hidden-block" id="ventErrorBanner"></div>
 
       <div class="hidden-block" id="ventPreviewCard">
-        <div class="balance-block-title">Vista previa</div>
-        <div class="kpi-grid" id="ventKpiGrid"></div>
+        <div class="balance-block-title">Archivos cargados</div>
+        <div id="ventFilesList"></div>
         <div class="footer-actions">
-          <button class="btn-primary" id="ventSaveBtn">Guardar en el historial</button>
+          <button class="btn-primary" id="ventSaveBtn">Guardar todo en el historial</button>
         </div>
         <div class="banner info hidden-block" id="ventSaveBanner"></div>
       </div>
@@ -417,24 +410,18 @@
         </div>
       </div>
 
-      <div class="balance-block-title" style="margin-top:0">Cargar ventas actualizadas</div>
-      <div class="fields">
-        <div class="field">
-          <label>Sede</label>
-          <input type="text" id="ventRepSedeInput" placeholder="Ej. Decepaz">
-        </div>
-      </div>
+      <div class="balance-block-title" style="margin-top:0">Cargar ventas actualizadas (una o varias sedes)</div>
       <div class="dropzone" id="ventRepDropzone">
         <p class="big">Ventas Netas Por Dia (Tecnocarnes)</p>
-        <button type="button" class="dz-btn" onclick="document.getElementById('ventRepFileInput').click()">Seleccionar archivo</button>
-        <input type="file" id="ventRepFileInput" accept=".xlsx,.xls">
-        <p class="hint" id="ventRepFileName"></p>
+        <p>Puedes soltar varios archivos a la vez — uno por cada sede</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('ventRepFileInput').click()">Seleccionar archivo(s)</button>
+        <input type="file" id="ventRepFileInput" accept=".xlsx,.xls" multiple>
       </div>
       <div class="banner error hidden-block" id="ventRepErrorBanner"></div>
       <div class="hidden-block" id="ventRepPreviewCard">
-        <div class="kpi-grid" id="ventRepKpiGrid"></div>
+        <div id="ventRepFilesList"></div>
         <div class="footer-actions">
-          <button class="btn-primary" id="ventRepSaveBtn">Guardar en el historial</button>
+          <button class="btn-primary" id="ventRepSaveBtn">Guardar todo en el historial</button>
         </div>
         <div class="banner info hidden-block" id="ventRepSaveBanner"></div>
       </div>

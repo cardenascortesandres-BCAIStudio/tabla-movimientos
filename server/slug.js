@@ -1,12 +1,22 @@
 import { normText } from '../src/core/normalize.js';
 
+// Alias conocidos: el nombre de archivo o el contenido de un reporte a veces
+// omite una palabra del nombre oficial de la sede (ej. archivo "NARANJOS"
+// para la sede real "Los Naranjos"), lo que generaría un slug distinto y una
+// sede duplicada en vez de fusionarse con la existente. Lista fija porque son
+// las 8 sedes reales del negocio, no un caso genérico.
+const SEDE_SLUG_ALIASES = {
+  naranjos: 'los-naranjos',
+};
+
 // Clave estable por sede para las tablas balance_* — insensible a acentos,
 // mayúsculas y espacios (reusa normText, ya probado en el flujo de movimientos).
 export function sedeSlug(sedeName) {
-  return normText(sedeName)
+  const base = normText(sedeName)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'sede';
+  return SEDE_SLUG_ALIASES[base] || base;
 }
 
 // Nombre canónico para un slug de sede, buscado en TODOS los módulos (no solo
