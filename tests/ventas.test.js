@@ -2,6 +2,7 @@
 // Netas Por Dia" y agregación día/semana/mes/año.
 import { describe, it, expect } from 'vitest';
 import { parseVentasDiariasFile, guessSedeFromVentasRows } from '../src/core/ventasFileParse.js';
+import { parsePresupuestoFile } from '../src/core/presupuestoFileParse.js';
 import { aggregateByPeriod, periodKeyFor, computeProjection, findBestPeriod } from '../src/ventas/ventasDashboardData.js';
 
 // Forma real (ver Desktop/BRANGUS/VENTAS/*.xls): fila de subtotal mensual
@@ -59,6 +60,45 @@ describe('ventasFileParse', () => {
     const rows = buildFixtureRows();
     expect(guessSedeFromVentasRows(rows, ['DECEPAZ', 'ALAMEDA'])).toBe('DECEPAZ');
     expect(guessSedeFromVentasRows([['', 'LA CASONA', '']], ['CASONA'])).toBe('CASONA');
+  });
+});
+
+describe('presupuestoFileParse', () => {
+  // Forma real (ver Desktop/BRANGUS/PRESUPUESTO.xlsx): encabezado con
+  // columnas de referencia de meses puntuales que no se usan, y fila TOTAL
+  // final que debe ignorarse.
+  function buildFixtureRows() {
+    return [
+      ['', 'PRESUPUESTO', 'SEPTIEMBRE DE 2025', 'AGOSTO DE 2026'],
+      ['ALAMEDA', 1165000000, 1217851313, 1275195153],
+      ['CASONA', 560000000, 485399131, 506675378],
+      ['JAMUNDI', 600000000, 265983916, 359294570],
+      ['DECEPAZ', 450000000, 361535668, 320482074],
+      ['VILLA DEL LAGO', 320000000, 190486926, 233477781],
+      ['NARANJOS', 350000000, 195442699, 245666746],
+      ['CHIMINANGOS', 230000000, 151788010, 174360192],
+      ['PLANTA POLLO', 230000000, 70846, 476425],
+      ['TOTAL', 3905000000, 2868558509, 3115628319],
+    ];
+  }
+
+  it('parsea el monto de presupuesto por sede, ignorando la fila TOTAL', () => {
+    const result = parsePresupuestoFile(buildFixtureRows());
+    expect(result).not.toBeNull();
+    expect(result.sedes).toEqual([
+      { sedeName: 'ALAMEDA', monto: 1165000000 },
+      { sedeName: 'CASONA', monto: 560000000 },
+      { sedeName: 'JAMUNDI', monto: 600000000 },
+      { sedeName: 'DECEPAZ', monto: 450000000 },
+      { sedeName: 'VILLA DEL LAGO', monto: 320000000 },
+      { sedeName: 'NARANJOS', monto: 350000000 },
+      { sedeName: 'CHIMINANGOS', monto: 230000000 },
+      { sedeName: 'PLANTA POLLO', monto: 230000000 },
+    ]);
+  });
+
+  it('devuelve null si no encuentra la columna "PRESUPUESTO"', () => {
+    expect(parsePresupuestoFile([['algo', 'random'], ['sin', 'encabezado']])).toBeNull();
   });
 });
 

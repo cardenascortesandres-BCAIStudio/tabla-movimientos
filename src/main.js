@@ -54,8 +54,9 @@ import { aggregateByPeriod as aggregateAudByPeriod, combineBlockPct } from './au
 import { buildAuditoriasReportHtml } from './export/auditoriasHtmlReportExport.js';
 
 import { parseVentasDiariasFile, guessSedeFromVentasRows } from './core/ventasFileParse.js';
+import { parsePresupuestoFile } from './core/presupuestoFileParse.js';
 import * as ventasApi from './ventas/ventasApi.js';
-import { aggregateByPeriod as aggregateVentByPeriod } from './ventas/ventasDashboardData.js';
+import { aggregateByPeriod as aggregateVentByPeriod, computeProjection } from './ventas/ventasDashboardData.js';
 
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
 
@@ -1532,6 +1533,85 @@ function createVentUploader(ids, onSaved) {
   return { handleFiles, saveAll };
 }
 
+// Carga del archivo "PRESUPUESTO.xlsx" (una fila por sede con la meta
+// mensual que da la empresa) — llena presupuestos_mensuales de TODAS las
+// sedes del mes en curso de una sola vez, en vez de digitarlas una por una
+// en la tabla manual de abajo (que sigue disponible para ajustes puntuales).
+function createPresupuestoUploader(ids, onSaved) {
+  let parsed = null; // { sedes: [{ sedeName, monto }] } | null
+  let fileName = '';
+  let error = '';
+
+  function render() {
+    if (error) {
+      el(ids.filesList).innerHTML = `<div class="vent-file-row vent-file-error">
+        <div class="vent-file-name">${escapeHtml(fileName)}</div>
+        <div class="vent-file-summary">⚠ ${escapeHtml(error)}</div>
+      </div>`;
+    } else if (parsed) {
+      el(ids.filesList).innerHTML = `<div class="vent-file-row">
+        <div class="vent-file-name">${escapeHtml(fileName)}</div>
+        <div class="vent-file-summary">${parsed.sedes.length} sede(s): ${parsed.sedes.map(s => `${escapeHtml(s.sedeName)} ${fmtCOP(s.monto)}`).join(' · ')}</div>
+      </div>`;
+    } else {
+      el(ids.filesList).innerHTML = '';
+    }
+    el(ids.previewCard).classList.toggle('hidden-block', !parsed && !error);
+  }
+
+  function handleFiles(files) {
+    const file = files[0];
+    if (!file) return;
+    fileName = file.name; error = ''; parsed = null;
+    if (!/\.(xlsx|xls)$/i.test(file.name)) { error = `"${file.name}" no es .xlsx ni .xls.`; render(); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+        const result = parsePresupuestoFile(rows);
+        if (!result) error = 'No se encontró la columna "PRESUPUESTO" — debe ser el archivo con la meta mensual por sede.';
+        else parsed = result;
+      } catch (err) {
+        error = 'No se pudo leer el archivo: ' + err.message;
+      }
+      render();
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  async function saveAll() {
+    if (!parsed) return;
+    const { anio, mes } = currentAnioMes();
+    const btn = el(ids.saveBtn);
+    const originalText = btn.textContent;
+    const banner = el(ids.saveBanner);
+    btn.disabled = true;
+    for (let i = 0; i < parsed.sedes.length; i++) {
+      const s = parsed.sedes[i];
+      btn.textContent = `Guardando ${i + 1}/${parsed.sedes.length}…`;
+      banner.className = 'banner info'; banner.classList.remove('hidden-block');
+      banner.textContent = `Guardando ${i + 1} de ${parsed.sedes.length}: ${s.sedeName}…`;
+      try {
+        await ventasApi.savePresupuesto(s.sedeName, anio, mes, s.monto);
+      } catch (err) {
+        btn.disabled = false; btn.textContent = originalText;
+        banner.className = 'banner error';
+        banner.textContent = `⚠ Error guardando ${s.sedeName}: ${err.message}`;
+        return;
+      }
+    }
+    btn.disabled = false; btn.textContent = originalText;
+    banner.className = 'banner info';
+    banner.textContent = `✓ Presupuesto de ${parsed.sedes.length} sede(s) actualizado para ${anio}-${String(mes).padStart(2, '0')}.`;
+    parsed = null; fileName = ''; render();
+    if (onSaved) await onSaved();
+  }
+
+  return { handleFiles, saveAll };
+}
+
 const ventUploader = createVentUploader({
   errorBanner: 'ventErrorBanner', previewCard: 'ventPreviewCard', filesList: 'ventFilesList',
   saveBtn: 'ventSaveBtn', saveBanner: 'ventSaveBanner'
@@ -1540,6 +1620,16 @@ const ventRepUploader = createVentUploader({
   errorBanner: 'ventRepErrorBanner', previewCard: 'ventRepPreviewCard', filesList: 'ventRepFilesList',
   saveBtn: 'ventRepSaveBtn', saveBanner: 'ventRepSaveBanner'
 }, loadVentReportesData);
+const presuUploader = createPresupuestoUploader({
+  previewCard: 'presuPreviewCard', filesList: 'presuFilesList',
+  saveBtn: 'presuSaveBtn', saveBanner: 'presuSaveBanner'
+}, async () => {
+  const presResult = await ventasApi.getPresupuestos();
+  ventasPresupuestos = presResult.presupuestos || [];
+  renderPresupuestoTable();
+  renderVentPresupuestoChart();
+  renderProyeccionTable();
+});
 
 async function loadVentReportesData() {
   el('reportesVentView').classList.add('hidden-block');
@@ -1560,6 +1650,7 @@ async function loadVentReportesData() {
     el('reportesVentView').classList.remove('hidden-block');
     renderPresupuestoTable();
     renderVentPresupuestoChart();
+    renderProyeccionTable();
   } catch (err) {
     el('ventReportesLoadingHint').classList.add('hidden-block');
     const b = el('ventReportesErrorBanner');
@@ -1597,9 +1688,41 @@ function renderPresupuestoTable() {
       const presResult = await ventasApi.getPresupuestos();
       ventasPresupuestos = presResult.presupuestos || [];
       renderVentPresupuestoChart();
+      renderProyeccionTable();
       if (reportesWeeks) renderReportes(); // el presupuesto también alimenta el KPI de cumplimiento en Balance
     });
   });
+}
+
+// Cómo va a cerrar cada punto de venta según su ritmo actual (computeProjection,
+// ver src/ventas/ventasDashboardData.js) contra la meta que dio la empresa —
+// el seguimiento explícito que pidió el usuario, más allá del acumulado del
+// gráfico de barras de arriba.
+function renderProyeccionTable() {
+  const body = el('proyeccionTableBody');
+  if (!body) return;
+  if (!ventasAllDias || !ventasAllDias.length) {
+    body.innerHTML = '<tr><td colspan="5" class="left hint">Sin ventas cargadas todavía.</td></tr>';
+    return;
+  }
+  const { anio, mes } = currentAnioMes();
+  const mesPrefix = `${anio}-${String(mes).padStart(2, '0')}`;
+  const diasDelMes = ventasAllDias.filter(d => String(d.fecha).slice(0, 7) === mesPrefix);
+  const sedesDelMes = Array.from(new Set(diasDelMes.map(d => d.sede_name))).sort();
+
+  body.innerHTML = sedesDelMes.length ? sedesDelMes.map(sedeName => {
+    const proj = computeProjection(diasDelMes.filter(d => d.sede_name === sedeName), anio, mes);
+    const presupuesto = Number((ventasPresupuestos || []).find(p => p.sede_name === sedeName && p.anio === anio && p.mes === mes)?.monto || 0);
+    const pctProyectado = presupuesto > 0 && proj ? proj.proyeccion / presupuesto : null;
+    const cls = pctProyectado == null ? '' : (pctProyectado >= 1 ? 'diff-zero' : (pctProyectado >= 0.9 ? '' : 'diff-neg'));
+    return `<tr>
+      <td class="left">${escapeHtml(sedeName)}</td>
+      <td>${proj ? fmtCOP(proj.acumulado) : '—'}</td>
+      <td>${proj ? fmtCOP(proj.proyeccion) : '—'}</td>
+      <td>${presupuesto > 0 ? fmtCOP(presupuesto) : '—'}</td>
+      <td class="${cls}">${pctProyectado == null ? '—' : fmtPct(pctProyectado)}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="5" class="left hint">Sin ventas del mes en curso todavía.</td></tr>';
 }
 
 // Único gráfico operativo de esta pestaña: acumulado del mes en curso vs.
@@ -1723,5 +1846,7 @@ initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodA
 applyThemeMode();
 wireMultiFileDropzone('ventRepDropzone', 'ventRepFileInput', ventRepUploader.handleFiles);
 el('ventRepSaveBtn').addEventListener('click', ventRepUploader.saveAll);
+wireMultiFileDropzone('presuDropzone', 'presuFileInput', presuUploader.handleFiles);
+el('presuSaveBtn').addEventListener('click', presuUploader.saveAll);
 
 switchFlow('choice');

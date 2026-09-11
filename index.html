@@ -427,7 +427,20 @@
       </div>
 
       <div class="balance-block-title">Presupuesto del mes por sede</div>
-      <p class="hint">Meta de venta mensual — se usa para calcular cumplimiento y proyección (acá y en la pestaña Balance). Edítala cuando cambie.</p>
+      <p class="hint">Meta de venta mensual, la da la empresa cada mes. Súbela desde el Excel (PRESUPUESTO.xlsx) o edítala sede por sede abajo — se usa para calcular cumplimiento y proyección (acá y en la pestaña Balance).</p>
+      <div class="dropzone" id="presuDropzone">
+        <p class="big">Archivo de Presupuesto (Excel)</p>
+        <p>Una fila por sede con la meta mensual — llena todas las sedes de una vez</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('presuFileInput').click()">Seleccionar archivo</button>
+        <input type="file" id="presuFileInput" accept=".xlsx,.xls">
+      </div>
+      <div class="hidden-block" id="presuPreviewCard">
+        <div id="presuFilesList"></div>
+        <div class="footer-actions">
+          <button class="btn-primary" id="presuSaveBtn">Guardar presupuesto del mes</button>
+        </div>
+        <div class="banner info hidden-block" id="presuSaveBanner"></div>
+      </div>
       <div class="table-scroll">
         <table class="dash-table">
           <thead><tr><th class="left">Sede</th><th>Presupuesto</th><th></th></tr></thead>
@@ -442,6 +455,14 @@
         <div class="dash-table-title">Acumulado del mes vs. presupuesto, por sede</div>
         <div class="dash-charts">
           <div class="chart-box" style="grid-column:1/-1"><canvas id="chartVentPresupuesto"></canvas></div>
+        </div>
+
+        <div class="dash-table-title" style="margin-top:18px">Proyección de cierre del mes, por sede</div>
+        <div class="table-scroll">
+          <table class="dash-table">
+            <thead><tr><th class="left">Sede</th><th>Acumulado</th><th>Proyección de cierre</th><th>Presupuesto</th><th>% Proyectado</th></tr></thead>
+            <tbody id="proyeccionTableBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
