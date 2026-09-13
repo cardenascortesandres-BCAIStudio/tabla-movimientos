@@ -24,6 +24,18 @@ export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuesto
   const generatedAt = new Date().toLocaleString('es-CO');
   const title = `Reportes Brangus${meta?.periodo ? ' — ' + meta.periodo : ''}`;
   const sedeCount = new Set(rawWeeks.map(w => w.sedeName)).size;
+  // "Corte a": el último día real con ventas cargadas (ventas_dias, ver
+  // rawVentas) — no la fecha de generación del archivo, que solo dice CUÁNDO
+  // se descargó, no HASTA QUÉ DÍA llegan los datos.
+  const MESES_FULL = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const ultimaFechaVenta = rawVentas.reduce((max, d) => {
+    const f = String(d.fecha).slice(0, 10);
+    return !max || f > max ? f : max;
+  }, null);
+  const corteLabel = ultimaFechaVenta ? (() => {
+    const d = new Date(ultimaFechaVenta + 'T00:00:00Z');
+    return `${d.getUTCDate()} de ${MESES_FULL[d.getUTCMonth()]} de ${d.getUTCFullYear()}`;
+  })() : null;
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -40,7 +52,7 @@ ${VIEWER_CSS}
   <header class="top">
     <div>
       <h1>Reportes — Margen y Utilidad por Sede</h1>
-      <p class="sub">Generado el ${escapeHtml(generatedAt)} · ${sedeCount} sede(s) · ${rawWeeks.length} semana(s) guardada(s)</p>
+      <p class="sub">Generado el ${escapeHtml(generatedAt)}${corteLabel ? ' · con corte a ' + escapeHtml(corteLabel) : ''} · ${sedeCount} sede(s) · ${rawWeeks.length} semana(s) guardada(s)</p>
     </div>
     <button class="theme-btn" id="themeToggleBtn" title="Personalizar aspecto">🎨 Personalizar</button>
   </header>
@@ -202,6 +214,16 @@ function periodKeyFor(weekStart, granularity){
   return y + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
 }
 const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function capMes(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+// "semana del 01 al 09 Sep" (o "semana del 30 Ago al 05 Sep" si cruza de mes) —
+// para saber de un vistazo qué rango de días exactos cubre la semana elegida.
+function weekRangeLabel(startVal, endVal){
+  const s = new Date(String(startVal).slice(0, 10) + 'T00:00:00Z');
+  const e = new Date(String(endVal).slice(0, 10) + 'T00:00:00Z');
+  const sDay = String(s.getUTCDate()).padStart(2, '0'), eDay = String(e.getUTCDate()).padStart(2, '0');
+  const sMon = capMes(MESES[s.getUTCMonth()]), eMon = capMes(MESES[e.getUTCMonth()]);
+  return sMon === eMon ? ('semana del ' + sDay + ' al ' + eDay + ' ' + sMon) : ('semana del ' + sDay + ' ' + sMon + ' al ' + eDay + ' ' + eMon);
+}
 function periodLabel(periodKey, granularity){
   if (granularity !== 'month') return periodKey;
   const parts = periodKey.split('-');
@@ -214,17 +236,21 @@ function aggregateByPeriod(rawWeeks, granularity){
     const periodKey = periodKeyFor(w.weekStart, granularity);
     if (!accBySede.has(sedeName)) accBySede.set(sedeName, new Map());
     const periods = accBySede.get(sedeName);
-    if (!periods.has(periodKey)) periods.set(periodKey, { periodKey, sedeName, totalVentas: 0, totalCompras: 0, utilidadBruta: 0, weeks: 0 });
+    if (!periods.has(periodKey)) periods.set(periodKey, { periodKey, sedeName, totalVentas: 0, totalCompras: 0, utilidadBruta: 0, weeks: 0, periodStart: w.weekStart, periodEnd: w.weekEnd });
     const acc = periods.get(periodKey);
     acc.totalVentas += c.totalVentas || 0;
     acc.totalCompras += c.totalCompras || 0;
     acc.utilidadBruta += c.utilidadBruta || 0;
     acc.weeks += 1;
+    if (w.weekStart && (!acc.periodStart || w.weekStart < acc.periodStart)) acc.periodStart = w.weekStart;
+    if (w.weekEnd && (!acc.periodEnd || w.weekEnd > acc.periodEnd)) acc.periodEnd = w.weekEnd;
   });
   const bySede = [], byPeriod = new Map();
   accBySede.forEach((periods, sedeName) => {
     const points = Array.from(periods.values()).map(acc => ({
-      periodKey: acc.periodKey, periodLabel: periodLabel(acc.periodKey, granularity), sedeName,
+      periodKey: acc.periodKey,
+      periodLabel: (granularity === 'week' && acc.periodStart && acc.periodEnd) ? weekRangeLabel(acc.periodStart, acc.periodEnd) : periodLabel(acc.periodKey, granularity),
+      sedeName,
       totalVentas: acc.totalVentas, totalCompras: acc.totalCompras, utilidadBruta: acc.utilidadBruta,
       margenPct: acc.totalVentas === 0 ? 0 : acc.utilidadBruta / acc.totalVentas, weeks: acc.weeks
     })).sort((a, b) => a.periodKey < b.periodKey ? -1 : 1);
@@ -252,6 +278,14 @@ function ventaPeriodKeyFor(fecha, granularity){
   if (granularity === 'year') return String(y);
   return y + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
 }
+function ventaPeriodLabel(periodKey, granularity){
+  if (granularity === 'week') {
+    const start = new Date(periodKey + 'T00:00:00Z');
+    const end = new Date(start); end.setUTCDate(end.getUTCDate() + 6);
+    return weekRangeLabel(start.toISOString(), end.toISOString());
+  }
+  return periodLabel(periodKey, granularity);
+}
 function aggregateVentasByPeriod(rawVentas, granularity){
   const accBySede = new Map();
   rawVentas.forEach(d => {
@@ -264,7 +298,7 @@ function aggregateVentasByPeriod(rawVentas, granularity){
   });
   const bySede = [], byPeriod = new Map();
   accBySede.forEach((periods, sedeName) => {
-    const points = Array.from(periods.values()).map(acc => ({ periodKey: acc.periodKey, periodLabel: periodLabel(acc.periodKey, granularity), sedeName, valorVenta: acc.valorVenta })).sort((a, b) => a.periodKey < b.periodKey ? -1 : 1);
+    const points = Array.from(periods.values()).map(acc => ({ periodKey: acc.periodKey, periodLabel: ventaPeriodLabel(acc.periodKey, granularity), sedeName, valorVenta: acc.valorVenta })).sort((a, b) => a.periodKey < b.periodKey ? -1 : 1);
     bySede.push({ sedeName, points });
     points.forEach(p => { if (!byPeriod.has(p.periodKey)) byPeriod.set(p.periodKey, []); byPeriod.get(p.periodKey).push(p); });
   });

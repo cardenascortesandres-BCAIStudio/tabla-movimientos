@@ -1708,10 +1708,6 @@ const ventUploader = createVentUploader({
   errorBanner: 'ventErrorBanner', previewCard: 'ventPreviewCard', filesList: 'ventFilesList',
   saveBtn: 'ventSaveBtn', saveBanner: 'ventSaveBanner'
 });
-const ventRepUploader = createVentUploader({
-  errorBanner: 'ventRepErrorBanner', previewCard: 'ventRepPreviewCard', filesList: 'ventRepFilesList',
-  saveBtn: 'ventRepSaveBtn', saveBanner: 'ventRepSaveBanner'
-}, loadVentReportesData);
 const presuUploader = createPresupuestoUploader({
   previewCard: 'presuPreviewCard', filesList: 'presuFilesList',
   saveBtn: 'presuSaveBtn', saveBanner: 'presuSaveBanner'
@@ -1876,8 +1872,6 @@ el('reportesTypeVentasBtn').addEventListener('click', () => switchReportesType('
 el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
 initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodAllBtn', 'reportesPeriodNoneBtn');
 applyThemeMode();
-wireMultiFileDropzone('ventRepDropzone', 'ventRepFileInput', ventRepUploader.handleFiles);
-el('ventRepSaveBtn').addEventListener('click', ventRepUploader.saveAll);
 wireMultiFileDropzone('presuDropzone', 'presuFileInput', presuUploader.handleFiles);
 el('presuSaveBtn').addEventListener('click', presuUploader.saveAll);
 

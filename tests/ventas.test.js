@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseVentasDiariasFile, guessSedeFromVentasRows } from '../src/core/ventasFileParse.js';
 import { parsePresupuestoFile } from '../src/core/presupuestoFileParse.js';
-import { aggregateByPeriod, periodKeyFor, computeProjection, findBestPeriod } from '../src/ventas/ventasDashboardData.js';
+import { aggregateByPeriod, periodKeyFor, periodLabel, weekRangeLabel, computeProjection, findBestPeriod } from '../src/ventas/ventasDashboardData.js';
 
 // Forma real (ver Desktop/BRANGUS/VENTAS/*.xls): fila de subtotal mensual
 // (Fecha en blanco), marcador de mes suelto ("11"), y "Grand Total:" al final
@@ -131,6 +131,15 @@ describe('ventasDashboardData#aggregateByPeriod', () => {
   it('periodKeyFor: la fecha ISO completa de Postgres (con hora/zona) no rompe el agrupado', () => {
     expect(periodKeyFor('2026-09-01T05:00:00.000Z', 'day')).toBe('2026-09-01');
     expect(periodKeyFor('2026-09-01T05:00:00.000Z', 'month')).toBe('2026-09');
+  });
+
+  it('periodLabel de semana muestra el rango completo lunes-domingo', () => {
+    expect(periodLabel('2026-08-31', 'week')).toBe('semana del 31 Ago al 06 Sep');
+  });
+
+  it('weekRangeLabel: mismo mes vs. mes cruzado', () => {
+    expect(weekRangeLabel('2026-09-01', '2026-09-07')).toBe('semana del 01 al 07 Sep');
+    expect(weekRangeLabel('2026-08-31', '2026-09-06')).toBe('semana del 31 Ago al 06 Sep');
   });
 });
 

@@ -37,6 +37,19 @@ export function periodKeyFor(fecha, granularity) {
   return `${y}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// "semana del 01 al 09 Sep" (o "semana del 30 Ago al 05 Sep" si cruza de
+// mes) — a pedido explícito del usuario, para saber de un vistazo qué rango
+// de días exactos cubre la semana seleccionada en el filtro "Fechas".
+export function weekRangeLabel(startFecha, endFecha) {
+  const s = new Date(String(startFecha).slice(0, 10) + 'T00:00:00Z');
+  const e = new Date(String(endFecha).slice(0, 10) + 'T00:00:00Z');
+  const sDay = String(s.getUTCDate()).padStart(2, '0'), eDay = String(e.getUTCDate()).padStart(2, '0');
+  const sMon = cap(MESES[s.getUTCMonth()]), eMon = cap(MESES[e.getUTCMonth()]);
+  return sMon === eMon ? `semana del ${sDay} al ${eDay} ${sMon}` : `semana del ${sDay} ${sMon} al ${eDay} ${eMon}`;
+}
+
 export function periodLabel(periodKey, granularity) {
   if (granularity === 'year') return periodKey;
   if (granularity === 'day') {
@@ -44,8 +57,10 @@ export function periodLabel(periodKey, granularity) {
     return `${String(d.getUTCDate()).padStart(2, '0')} ${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
   }
   if (granularity === 'week') {
-    const d = new Date(periodKey + 'T00:00:00Z');
-    return `sem. ${String(d.getUTCDate()).padStart(2, '0')} ${MESES[d.getUTCMonth()]}`;
+    // periodKey es el lunes (isoWeekStart); la semana siempre cierra el domingo siguiente.
+    const start = new Date(periodKey + 'T00:00:00Z');
+    const end = new Date(start); end.setUTCDate(end.getUTCDate() + 6);
+    return weekRangeLabel(start.toISOString(), end.toISOString());
   }
   const [y, m] = periodKey.split('-');
   return `${MESES[parseInt(m, 10) - 1]} ${y}`;

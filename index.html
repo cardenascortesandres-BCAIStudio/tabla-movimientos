@@ -428,30 +428,7 @@
     </div>
 
     <div class="card hidden-block" id="reportesVentCard">
-      <div class="dash-header-row">
-        <div>
-          <div class="dash-title">Presupuesto y carga de Ventas</div>
-          <div class="dash-sub">Sube el archivo diario de ventas de una sede y gestiona la meta mensual — la comparativa de venta/margen/utilidad ya está unificada en la pestaña "Balance".</div>
-        </div>
-      </div>
-
-      <div class="balance-block-title" style="margin-top:0">Cargar ventas actualizadas (una o varias sedes)</div>
-      <div class="dropzone" id="ventRepDropzone">
-        <p class="big">Ventas Netas Por Dia (Tecnocarnes)</p>
-        <p>Puedes soltar varios archivos a la vez — uno por cada sede</p>
-        <button type="button" class="dz-btn" onclick="document.getElementById('ventRepFileInput').click()">Seleccionar archivo(s)</button>
-        <input type="file" id="ventRepFileInput" accept=".xlsx,.xls" multiple>
-      </div>
-      <div class="banner error hidden-block" id="ventRepErrorBanner"></div>
-      <div class="hidden-block" id="ventRepPreviewCard">
-        <div id="ventRepFilesList"></div>
-        <div class="footer-actions">
-          <button class="btn-primary" id="ventRepSaveBtn">Guardar todo en el historial</button>
-        </div>
-        <div class="banner info hidden-block" id="ventRepSaveBanner"></div>
-      </div>
-
-      <div class="balance-block-title">Presupuesto del mes por sede</div>
+      <div class="balance-block-title" style="margin-top:0">Presupuesto del mes por sede</div>
       <p class="hint">Meta de venta mensual, la da la empresa cada mes. Súbela desde el Excel (PRESUPUESTO.xlsx) o edítala sede por sede abajo — se usa para calcular cumplimiento y proyección (acá y en la pestaña Balance).</p>
       <div class="dropzone" id="presuDropzone">
         <p class="big">Archivo de Presupuesto (Excel)</p>

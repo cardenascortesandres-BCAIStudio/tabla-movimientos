@@ -65,11 +65,27 @@ export function periodKeyFor(weekStart, granularity) {
   return `${y}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// "semana del 01 al 09 Sep" (o "semana del 30 Ago al 05 Sep" si cruza de
+// mes) — a pedido explícito del usuario, para saber de un vistazo qué rango
+// de días exactos cubre la semana seleccionada en el filtro "Fechas". Usa
+// week_start/week_end REALES (no se asume lunes-a-domingo: cada sede cuenta
+// su semana en un día distinto — ver la nota sobre esto en el resto del
+// proyecto).
+export function weekRangeLabel(weekStart, weekEnd) {
+  const s = new Date(dateOnly(weekStart) + 'T00:00:00Z');
+  const e = new Date(dateOnly(weekEnd) + 'T00:00:00Z');
+  const sDay = String(s.getUTCDate()).padStart(2, '0'), eDay = String(e.getUTCDate()).padStart(2, '0');
+  const sMon = cap(MESES[s.getUTCMonth()]), eMon = cap(MESES[e.getUTCMonth()]);
+  return sMon === eMon ? `semana del ${sDay} al ${eDay} ${sMon}` : `semana del ${sDay} ${sMon} al ${eDay} ${eMon}`;
+}
+
 export function periodLabel(periodKey, granularity) {
   if (granularity === 'year') return periodKey;
-  if (granularity === 'week') return periodKey;
+  if (granularity === 'week') return periodKey; // ver weekRangeLabel: aggregateByPeriod la usa cuando tiene week_end real
   const [y, m] = periodKey.split('-');
-  const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   return `${MESES[parseInt(m, 10) - 1]} ${y}`;
 }
 
@@ -104,7 +120,9 @@ export function aggregateByPeriod(weekRows, granularity = 'week') {
     const points = Array.from(periods.values())
       .map(acc => ({
         periodKey: acc.periodKey,
-        periodLabel: periodLabel(acc.periodKey, granularity),
+        periodLabel: (granularity === 'week' && acc.periodStart && acc.periodEnd)
+          ? weekRangeLabel(acc.periodStart, acc.periodEnd)
+          : periodLabel(acc.periodKey, granularity),
         periodStart: acc.periodStart, periodEnd: acc.periodEnd, sedeName,
         totalVentas: acc.totalVentas, totalCompras: acc.totalCompras, utilidadBruta: acc.utilidadBruta,
         margenPct: acc.totalVentas === 0 ? 0 : acc.utilidadBruta / acc.totalVentas,
