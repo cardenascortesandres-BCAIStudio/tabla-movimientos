@@ -59,20 +59,34 @@ function numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Compara `candidate` contra la lista de sedes ya conocidas por inclusión en
+// ambos sentidos — el archivo o el nombre del archivo a veces traen texto
+// extra pegado al nombre de la sede ("DECEPAZ CALLE 123 # 25B -08",
+// "DECEPAZ 14-20 SEPTIEMBRE.xls"), y sin este cruce esa cadena completa se
+// guarda como si fuera una sede nueva en vez de reusar la sede real. Se usa
+// tanto para el nombre detectado en el CONTENIDO del archivo como para el
+// nombre adivinado a partir del NOMBRE DEL ARCHIVO (ver createVentUploader
+// en src/main.js) — ambos caminos pueden producir esta misma cadena "sucia".
+export function matchKnownSede(candidate, knownSedeNames) {
+  const norm = normText(candidate);
+  if (!norm) return null;
+  const idx = knownSedeNames.findIndex(n => {
+    const u = normText(n);
+    return norm.includes(u) || u.includes(norm);
+  });
+  return idx !== -1 ? knownSedeNames[idx] : null;
+}
+
 // Detecta el nombre de sede a partir del contenido del archivo (varias filas
 // iniciales solo traen el nombre de la sede en mayúsculas, en su propia
 // celda) — respaldo para cuando el nombre de archivo no basta.
 export function guessSedeFromVentasRows(rows, knownSedeNames) {
-  const upper = knownSedeNames.map(n => normText(n));
   for (let r = 0; r < Math.min(rows.length, 15); r++) {
     const row = rows[r] || [];
     for (const cell of row) {
-      const norm = normText(cell);
-      if (!norm || norm.length < 4) continue;
-      // Comparación por inclusión en ambos sentidos: el archivo a veces trae
-      // el nombre con un prefijo ("LA CASONA" en vez de "CASONA").
-      const idx = upper.findIndex(u => norm.includes(u) || u.includes(norm));
-      if (idx !== -1) return knownSedeNames[idx];
+      if (String(cell).length < 4) continue;
+      const match = matchKnownSede(cell, knownSedeNames);
+      if (match) return match;
     }
   }
   return null;

@@ -1,7 +1,7 @@
 // Suite de regresión para el módulo de Ventas: parseo del archivo "Ventas
 // Netas Por Dia" y agregación día/semana/mes/año.
 import { describe, it, expect } from 'vitest';
-import { parseVentasDiariasFile, guessSedeFromVentasRows } from '../src/core/ventasFileParse.js';
+import { parseVentasDiariasFile, guessSedeFromVentasRows, matchKnownSede } from '../src/core/ventasFileParse.js';
 import { parsePresupuestoFile } from '../src/core/presupuestoFileParse.js';
 import { aggregateByPeriod, periodKeyFor, periodLabel, weekRangeLabel, computeProjection, findBestPeriod } from '../src/ventas/ventasDashboardData.js';
 
@@ -60,6 +60,30 @@ describe('ventasFileParse', () => {
     const rows = buildFixtureRows();
     expect(guessSedeFromVentasRows(rows, ['DECEPAZ', 'ALAMEDA'])).toBe('DECEPAZ');
     expect(guessSedeFromVentasRows([['', 'LA CASONA', '']], ['CASONA'])).toBe('CASONA');
+  });
+
+  // Caso real (2026-09-21): el archivo trae la sede con la dirección pegada
+  // en la misma celda ("DECEPAZ CALLE 123 # 25B -08") — sin el cruce contra
+  // sedes conocidas, esa celda completa se guardaba como sede nueva ("Decepaz
+  // Calle 123 # 25B -08") en vez de reusar "Decepaz", duplicando la sede.
+  it('reconoce la sede aunque venga con la dirección pegada en la misma celda', () => {
+    const rows = [
+      ['', '', '', '', 'DECEPAZ CALLE 123 # 25B -08', '', '', '', '', '', '', ''],
+      ['Fecha', 'Kilos', 'Unidades', 'Descuento', 'Nro Clientes', '', 'Valor Venta'],
+      ['02/01/2025', 100, 50, 0, 20, '', 1000000],
+    ];
+    expect(guessSedeFromVentasRows(rows, ['Decepaz', 'Alameda'])).toBe('Decepaz');
+  });
+});
+
+describe('ventasFileParse#matchKnownSede', () => {
+  it('reconoce un nombre de archivo con el rango de fechas pegado', () => {
+    expect(matchKnownSede('DECEPAZ 14-20 SEPTIEMBRE', ['Decepaz', 'Jamundí'])).toBe('Decepaz');
+    expect(matchKnownSede('JAMUNDI 14 20 septiembre', ['Decepaz', 'Jamundí'])).toBe('Jamundí');
+  });
+
+  it('devuelve null si no hay ninguna sede conocida que coincida', () => {
+    expect(matchKnownSede('PLANTA POLLO', ['Decepaz', 'Jamundí'])).toBeNull();
   });
 });
 

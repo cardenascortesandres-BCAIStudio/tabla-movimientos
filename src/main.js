@@ -53,7 +53,7 @@ import * as auditoriasApi from './auditorias/auditoriasApi.js';
 import { aggregateByPeriod as aggregateAudByPeriod, combineBlockPct } from './auditorias/auditoriasDashboardData.js';
 import { buildAuditoriasReportHtml } from './export/auditoriasHtmlReportExport.js';
 
-import { parseVentasDiariasFile, guessSedeFromVentasRows } from './core/ventasFileParse.js';
+import { parseVentasDiariasFile, guessSedeFromVentasRows, matchKnownSede } from './core/ventasFileParse.js';
 import { parsePresupuestoFile } from './core/presupuestoFileParse.js';
 import * as ventasApi from './ventas/ventasApi.js';
 import { aggregateByPeriod as aggregateVentByPeriod, computeProjection } from './ventas/ventasDashboardData.js';
@@ -1523,9 +1523,26 @@ let ventasPresupuestos = null;  // filas crudas de presupuestos_mensuales
 // una consulta por día).
 function createVentUploader(ids, onSaved) {
   let entries = []; // { fileName, sedeName, parsed, error }
+  let cachedSedeNames = null; // respaldo cuando ventasAllDias todavía no se cargó (ver knownSedeNames)
 
-  function knownSedeNames() {
-    return ventasAllDias ? Array.from(new Set(ventasAllDias.map(d => d.sede_name))) : [];
+  // Nombres de sede ya conocidos, para que guessSedeFromVentasRows/matchKnownSede
+  // puedan reconocer un nombre "sucio" (con dirección o rango de fechas pegado,
+  // ej. "DECEPAZ CALLE 123 # 25B -08" o "DECEPAZ 14-20 SEPTIEMBRE.xls") y
+  // reusar la sede real en vez de crear una nueva. Antes esto dependía
+  // solo de ventasAllDias, que normalmente está vacío en la pantalla de
+  // carga inicial "Ventas Diarias" (no se ha visitado Reportes todavía) —
+  // eso fue justo lo que causó sedes duplicadas como "DECEPAZ 14 20
+  // septiembre" (ver server/slug.js#resolveCanonicalSedeName, que solo
+  // ayuda si el slug ya coincide, no si el nombre detectado es otro texto).
+  async function knownSedeNames() {
+    if (ventasAllDias && ventasAllDias.length) return Array.from(new Set(ventasAllDias.map(d => d.sede_name)));
+    if (!cachedSedeNames) {
+      try {
+        const { sedes } = await ventasApi.getSedesConHistorial();
+        cachedSedeNames = (sedes || []).map(s => s.sede_name);
+      } catch { cachedSedeNames = []; }
+    }
+    return cachedSedeNames;
   }
 
   function render() {
@@ -1564,7 +1581,7 @@ function createVentUploader(ids, onSaved) {
         return;
       }
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         try {
           const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
           const ws = wb.Sheets[wb.SheetNames[0]];
@@ -1573,8 +1590,13 @@ function createVentUploader(ids, onSaved) {
           if (!parsed) {
             entries.push({ fileName: file.name, error: 'No se encontró la fila de encabezado ("Fecha"/"Valor Venta") — debe ser el reporte "Ventas Netas Por Dia" de Tecnocarnes.' });
           } else {
-            const guessedFromName = guessSedeName(file.name.replace(/\b(ventas?|netas?|dia|por)\b/gi, '').trim() || file.name);
-            const guessedFromContent = guessSedeFromVentasRows(rows, knownSedeNames());
+            const names = await knownSedeNames();
+            const guessedFromContent = guessSedeFromVentasRows(rows, names);
+            const rawGuessFromName = guessSedeName(file.name.replace(/\b(ventas?|netas?|dia|por)\b/gi, '').trim() || file.name);
+            // El nombre de archivo también puede traer texto extra pegado
+            // (ej. "DECEPAZ 14-20 SEPTIEMBRE.xls") — si coincide con una sede
+            // ya conocida se usa esa, en vez de guardar el nombre sucio tal cual.
+            const guessedFromName = matchKnownSede(rawGuessFromName, names) || rawGuessFromName;
             entries.push({ fileName: file.name, sedeName: guessedFromContent || guessedFromName || '', parsed });
           }
         } catch (err) {
