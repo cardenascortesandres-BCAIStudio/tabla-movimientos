@@ -805,6 +805,16 @@ async function loadReportesData() {
       renderReportes();
     } catch { /* silencioso: sin datos de ventas disponibles, el dashboard de Balance sigue funcionando igual */ }
   }
+
+  // Tabla de Movimientos (mermas) para la sub-vista "📋 Mermas" — mismo
+  // patrón silencioso que Ventas arriba: no bloquea el resto del dashboard.
+  if (!movHistWeeks) {
+    try {
+      const { weeks } = await movimientosApi.getAllWeeks();
+      movHistWeeks = weeks || [];
+      renderReportes();
+    } catch { /* silencioso: sin datos de mermas disponibles, el dashboard sigue funcionando igual */ }
+  }
 }
 
 // Métricas disponibles en el dashboard unificado de Reportes > Balance: las
@@ -824,7 +834,7 @@ function renderReportes() {
 
   const sedeSel = el('reportesSedeFilter');
   const prevSede = sedeSel.value;
-  const allSedeNames = Array.from(new Set([...data.sedeNames, ...((ventasAllDias || []).map(d => d.sede_name))])).sort();
+  const allSedeNames = Array.from(new Set([...data.sedeNames, ...((ventasAllDias || []).map(d => d.sede_name)), ...((movHistWeeks || []).map(w => w.sede_name))])).sort();
   sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + allSedeNames.map(s => `<option>${escapeHtml(s)}</option>`).join('');
   if (allSedeNames.includes(prevSede)) sedeSel.value = prevSede;
   const sedeFilter = sedeSel.value;
@@ -878,15 +888,17 @@ function renderReportes() {
       <div class="kpi-card ${scopeUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad acumulada (periodos seleccionados)</div><div class="kpi-value">${fmtCOP(scopeUtilidad)}</div></div>`;
   }
 
-  el('reportesDetalleWrap').classList.toggle('hidden-block', reportesSubView === 'presupuesto');
+  el('reportesDetalleWrap').classList.toggle('hidden-block', reportesSubView === 'presupuesto' || reportesSubView === 'mermas');
   if (reportesSubView === 'presupuesto') {
     renderReportesPresupuestoView(sedeFilter);
+  } else if (reportesSubView === 'mermas') {
+    renderReportesMermasView(sedeFilter, granularity);
   } else if (reportesSubView === 'sedes') {
     renderReportesSedesChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf);
   } else {
     renderReportesTiempoChart(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf);
   }
-  if (reportesSubView !== 'presupuesto') renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
+  if (reportesSubView !== 'presupuesto' && reportesSubView !== 'mermas') renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
 }
 
 function switchReportesSubView(view) {
@@ -895,6 +907,7 @@ function switchReportesSubView(view) {
   el('reportesTiempoView').classList.toggle('hidden-block', view !== 'tiempo');
   el('reportesSedesView').classList.toggle('hidden-block', view !== 'sedes');
   el('reportesPresupuestoView').classList.toggle('hidden-block', view !== 'presupuesto');
+  el('reportesMermasView').classList.toggle('hidden-block', view !== 'mermas');
   if (reportesWeeks) renderReportes();
 }
 
@@ -1140,7 +1153,6 @@ function switchReportesType(type) {
   el('reportesMovCard').classList.toggle('hidden-block', type !== 'movimientos');
   el('reportesAudCard').classList.toggle('hidden-block', type !== 'auditorias');
   el('reportesVentCard').classList.toggle('hidden-block', type !== 'ventas');
-  if (type === 'movimientos' && !movHistWeeks) loadMovHistData();
   if (type === 'auditorias' && !audHistAudits) loadAudReportesData();
   if (type === 'ventas' && !ventasAllDias) loadVentReportesData();
 }
@@ -1286,50 +1298,36 @@ function createMovUploader(ids, onSaved) {
 const movUploader = createMovUploader({
   errorBanner: 'movErrorBanner', previewCard: 'movPreviewCard', filesList: 'movFilesList',
   saveBtn: 'movSaveWeekBtn', saveBanner: 'movSaveBanner'
-}, loadMovHistData);
-
-async function loadMovHistData() {
-  el('reportesMovView').classList.add('hidden-block');
-  el('movHistLoadingHint').classList.remove('hidden-block');
-  el('movHistLoadingHint').textContent = 'Cargando historial…';
+}, async () => {
   try {
-    const { weeks, fromCache } = await movimientosApi.getAllWeeks();
+    const { weeks } = await movimientosApi.getAllWeeks();
     movHistWeeks = weeks || [];
-    if (!movHistWeeks.length) {
-      el('movHistLoadingHint').textContent = 'Todavía no hay semanas guardadas en el historial.';
-      return;
-    }
-    el('movHistLoadingHint').classList.toggle('hidden-block', !fromCache);
-    if (fromCache) el('movHistLoadingHint').textContent = 'Mostrando el último historial disponible en este equipo (sin conexión con el servidor ahora mismo).';
-    el('reportesMovView').classList.remove('hidden-block');
-    renderMovHist();
-  } catch (err) {
-    el('movHistLoadingHint').textContent = '⚠ No se pudo cargar el historial: ' + err.message;
-  }
-}
+  } catch { /* silencioso: el histórico se refresca solo la próxima vez que cargue */ }
+  if (reportesWeeks) renderReportes(); // refresca la sub-vista "📋 Mermas" si está unificada y visible
+});
 
 // Valor a graficar/tabular para un punto ya agregado: el total (todos los
-// bloques sumados, comportamiento de siempre) o un bloque específico — ver
-// selector "Bloque" agregado a pedido explícito del usuario para comparar
-// Finas/Pulpas/Segundas/... entre sedes y en el tiempo, no solo el total.
+// bloques sumados) o un bloque específico — ver selector "Bloque" agregado
+// a pedido explícito del usuario para comparar Finas/Pulpas/Segundas/...
+// entre sedes y en el tiempo, no solo el total de mermas.
 function movMetricFor(point) {
   if (!movBloqueFilter) return { disponible: point.disponible, diferenciaKL: point.diferenciaKL, pctDiferencia: point.pctDiferencia };
   const b = (point.byBloque || []).find(x => x.bloque === movBloqueFilter);
   return b ? { disponible: b.disponible, diferenciaKL: b.diferenciaKL, pctDiferencia: b.pctDiferencia } : { disponible: 0, diferenciaKL: 0, pctDiferencia: 0 };
 }
 
-function renderMovHist() {
-  if (!movHistWeeks) return;
-  const granularity = el('movGranularity').value;
+// Sub-vista "📋 Mermas" del dashboard unificado de Reportes > Balance —
+// unificada junto a Margen/Utilidad/Ventas/Presupuesto a pedido explícito
+// del usuario (antes vivía en su propia pestaña "Tabla de Movimientos",
+// que ahora solo sirve para cargar archivos). Respeta el filtro de sede y
+// la granularidad compartidos (semana/mes/año); ignora el selector de
+// "Métrica" y el popover de "Fechas" (no aplican a mermas) y tiene su
+// propio selector de "Bloque".
+function renderReportesMermasView(sedeFilter, granularity) {
+  if (!movHistWeeks || !movHistWeeks.length) return;
   const data = aggregateMovByPeriod(movHistWeeks, granularity);
 
-  const sedeSel = el('movSedeFilter');
-  const prevSede = sedeSel.value;
-  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + data.sedeNames.map(s => `<option>${escapeHtml(s)}</option>`).join('');
-  if (data.sedeNames.includes(prevSede)) sedeSel.value = prevSede;
-  const sedeFilter = sedeSel.value;
-
-  const bloqueSel = el('movBloqueFilter');
+  const bloqueSel = el('reportesMermasBloque');
   if (bloqueSel.options.length <= 1) {
     bloqueSel.innerHTML = '<option value="">Todos los bloques</option>' + BLOQUES_CANONICOS.map(b => `<option>${escapeHtml(b)}</option>`).join('');
   }
@@ -1344,18 +1342,18 @@ function renderMovHist() {
   const lastPct = lastDisponible === 0 ? 0 : lastDiferencia / lastDisponible;
   const GRAN_LABEL = { week: 'semana', month: 'mes', year: 'año' };
   const bloqueLabel = movBloqueFilter ? ' — ' + movBloqueFilter : '';
-  el('movHistKpiGrid').innerHTML = `
+  el('reportesMermasKpiGrid').innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Sedes con historial</div><div class="kpi-value">${data.sedeNames.length}</div></div>
     <div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">${movHistWeeks.length}</div></div>
     <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Diferencia KL — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmt(lastDiferencia)}</div></div>
     <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">% Diferencia — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmtPct(lastPct)}</div></div>`;
 
-  renderMovHistCharts(data, sedeFilter);
-  renderMovBloquesChart(data, sedeFilter);
-  renderMovHistTable(data, sedeFilter);
+  renderMermasCharts(data, sedeFilter);
+  renderMermasBloquesChart(data, sedeFilter);
+  renderMermasTable(data, sedeFilter);
 }
 
-function renderMovHistCharts(data, sedeFilter) {
+function renderMermasCharts(data, sedeFilter) {
   const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
   const labels = data.periodKeysSorted.map(k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const palette = SEDE_PALETTE;
@@ -1366,16 +1364,16 @@ function renderMovHistCharts(data, sedeFilter) {
     const byPeriod = new Map(points.map(p => [p.periodKey, movMetricFor(p).diferenciaKL]));
     return { label: sedeName, data: data.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
   });
-  const diffOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesMovView');
+  const diffOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesView');
   diffOpts.plugins.legend.display = series.length > 1;
-  chartMovDiferencia = new Chart(el('chartMovDiferencia').getContext('2d'), { type: 'line', data: { labels, datasets: diffDatasets }, options: diffOpts });
+  chartMovDiferencia = new Chart(el('chartReportesMermasTiempo').getContext('2d'), { type: 'line', data: { labels, datasets: diffDatasets }, options: diffOpts });
 
   if (chartMovSedes) chartMovSedes.destroy();
   const diffBySede = series.map(([sedeName, points]) => [sedeName, points.reduce((a, p) => a + movMetricFor(p).diferenciaKL, 0)]);
   const sedeLabels = diffBySede.map(([s]) => s), sedeValues = diffBySede.map(([, v]) => v);
-  chartMovSedes = new Chart(el('chartMovSedes').getContext('2d'), {
-    type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues, backgroundColor: chartColors(sedeValues, 'reportesMovView'), borderRadius: 6 }] },
-    options: Object.assign(dashboardChartOptions(metricLabel + ' acumulada por sede', 'reportesMovView'), { indexAxis: 'y' })
+  chartMovSedes = new Chart(el('chartReportesMermasSedes').getContext('2d'), {
+    type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues, backgroundColor: chartColors(sedeValues, 'reportesView'), borderRadius: 6 }] },
+    options: dashboardChartOptions(metricLabel + ' acumulada por sede', 'reportesView')
   });
 }
 
@@ -1383,8 +1381,8 @@ function renderMovHistCharts(data, sedeFilter) {
 // Segundas/...) para el alcance actual (sede + todo el periodo visible) — a
 // pedido explícito del usuario, para comparar los bloques entre sí de un
 // vistazo. Clic en una barra abre el detalle de productos de ese bloque
-// (semana más reciente con datos guardados, ver renderMovProductDrilldown).
-function renderMovBloquesChart(data, sedeFilter) {
+// (semana más reciente con datos guardados, ver renderMermasProductDrilldown).
+function renderMermasBloquesChart(data, sedeFilter) {
   if (chartMovBloques) chartMovBloques.destroy();
   const points = Array.from(data.bySede.entries())
     .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
@@ -1402,53 +1400,53 @@ function renderMovBloquesChart(data, sedeFilter) {
   const labels = pairs.map(p => p[0]);
   const values = pairs.map(p => p[1]);
   const title = 'Diferencia KL por bloque' + (sedeFilter ? ' — ' + sedeFilter : ' — todas las sedes');
-  const opts = Object.assign(dashboardChartOptions(title, 'reportesMovView'), {
+  const opts = Object.assign(dashboardChartOptions(title, 'reportesView'), {
     indexAxis: 'y',
     onClick: (evt, elements) => {
       if (!elements.length) return;
-      renderMovProductDrilldown(labels[elements[0].index], sedeFilter);
+      renderMermasProductDrilldown(labels[elements[0].index], sedeFilter);
     }
   });
-  chartMovBloques = new Chart(el('chartMovBloques').getContext('2d'), {
-    type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: chartColors(values, 'reportesMovView'), borderRadius: 6 }] }, options: opts
+  chartMovBloques = new Chart(el('chartReportesMermasBloques').getContext('2d'), {
+    type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: chartColors(values, 'reportesView'), borderRadius: 6 }] }, options: opts
   });
-  el('movDrillHint').classList.toggle('hidden-block', !!sedeFilter);
+  el('reportesMermasDrillHint').classList.toggle('hidden-block', !!sedeFilter);
 }
 
 // Detalle de productos de un bloque, de la semana más reciente guardada
 // para esa sede — "ver las diferencias internas de cada bloque" que pidió
 // el usuario, sin tener que descargar de nuevo el Excel de esa semana.
-function renderMovProductDrilldown(bloque, sedeFilter) {
-  const wrap = el('movDrillWrap');
+function renderMermasProductDrilldown(bloque, sedeFilter) {
+  const wrap = el('reportesMermasDrillWrap');
   wrap.classList.remove('hidden-block');
   if (!sedeFilter) {
-    el('movDrillTitle').textContent = 'Elige una sede específica (no "todas las sedes") para ver el detalle de productos de este bloque.';
-    el('movDrillTableBody').innerHTML = '';
+    el('reportesMermasDrillTitle').textContent = 'Elige una sede específica (no "todas las sedes") para ver el detalle de productos de este bloque.';
+    el('reportesMermasDrillTableBody').innerHTML = '';
     return;
   }
   const weeksSede = (movHistWeeks || []).filter(w => w.sede_name === sedeFilter).slice().sort((a, b) => (String(a.week_start) < String(b.week_start) ? 1 : -1));
   const latest = weeksSede[0];
   const rows = latest?.computed?.allProductRows;
   if (!latest || !rows) {
-    el('movDrillTitle').textContent = `Sin detalle de productos guardado para ${sedeFilter} todavía.`;
-    el('movDrillTableBody').innerHTML = '';
+    el('reportesMermasDrillTitle').textContent = `Sin detalle de productos guardado para ${sedeFilter} todavía.`;
+    el('reportesMermasDrillTableBody').innerHTML = '';
     return;
   }
   const productos = rows.filter(p => p.category === bloque).sort((a, b) => a.diferenciaKL - b.diferenciaKL);
   const weekLabel = String(latest.week_start).slice(0, 10) + (latest.week_end ? ' → ' + String(latest.week_end).slice(0, 10) : '');
-  el('movDrillTitle').textContent = `Detalle de productos — ${bloque} en ${sedeFilter}, semana ${weekLabel}`;
-  el('movDrillTableBody').innerHTML = productos.map(p => {
+  el('reportesMermasDrillTitle').textContent = `Detalle de productos — ${bloque} en ${sedeFilter}, semana ${weekLabel}`;
+  el('reportesMermasDrillTableBody').innerHTML = productos.map(p => {
     const cls = p.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(p.diferenciaKL) < 0.01 ? 'diff-zero' : '');
     const pct = p.disponible === 0 ? 0 : p.diferenciaKL / p.disponible;
     return `<tr><td class="left code">${escapeHtml(p.code)}</td><td class="left">${escapeHtml(p.name)}</td><td>${fmt(p.disponible)}</td><td class="${cls}">${fmt(p.diferenciaKL)}</td><td>${fmtPct(pct)}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="left hint">Sin productos con diferencia en este bloque esa semana.</td></tr>';
 }
 
-function renderMovHistTable(data, sedeFilter) {
+function renderMermasTable(data, sedeFilter) {
   let rows = Array.from(data.bySede.values()).flat();
   if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
   rows = rows.slice().sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
-  el('movHistTableBody').innerHTML = rows.map(r => {
+  el('reportesMermasTableBody').innerHTML = rows.map(r => {
     const m = movMetricFor(r);
     const cls = m.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(m.diferenciaKL) < 0.01 ? 'diff-zero' : '');
     return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmt(m.disponible)}</td><td class="${cls}">${fmt(m.diferenciaKL)}</td><td>${fmtPct(m.pctDiferencia)}</td></tr>`;
@@ -1999,9 +1997,7 @@ el('reportesTypeMovimientosBtn').addEventListener('click', () => switchReportesT
 el('reportesTypeAuditoriasBtn').addEventListener('click', () => switchReportesType('auditorias'));
 wireMultiFileDropzone('movDropzone', 'movFileInput', movUploader.handleFiles);
 el('movSaveWeekBtn').addEventListener('click', movUploader.saveAll);
-el('movGranularity').addEventListener('change', renderMovHist);
-el('movSedeFilter').addEventListener('change', renderMovHist);
-el('movBloqueFilter').addEventListener('change', () => { movBloqueFilter = el('movBloqueFilter').value; renderMovHist(); });
+el('reportesMermasBloque').addEventListener('change', () => { movBloqueFilter = el('reportesMermasBloque').value; renderReportes(); });
 el('audReportesGranularity').addEventListener('change', renderAudReportes);
 el('audReportesSedeFilter').addEventListener('change', renderAudReportes);
 el('audReportesDownloadBtn').addEventListener('click', downloadAudReportesReport);
