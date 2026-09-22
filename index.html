@@ -314,57 +314,30 @@
       <div class="dash-header-row">
         <div>
           <div class="dash-title">Reportes de Tabla de Movimientos</div>
-          <div class="dash-sub">Carga el Excel ya editado y corregido de la semana — se lee Disponible/Diferencia KL/% Diferencia tal como quedaron, no se recalcula nada.</div>
+          <div class="dash-sub">Carga el Excel ya editado y corregido de la semana (una o varias sedes) — se lee Disponible/Diferencia KL/% Diferencia tal como quedaron, no se recalcula nada. La sede y la semana se adivinan solas; revísalas antes de guardar.</div>
         </div>
       </div>
 
-      <div class="fields">
-        <div class="field">
-          <label>Sede</label>
-          <input type="text" id="movSedeInput" placeholder="Ej. Alameda">
-        </div>
-        <div class="field">
-          <label>Semana — inicio</label>
-          <input type="date" id="movWeekStartInput">
-        </div>
-        <div class="field">
-          <label>Semana — fin</label>
-          <input type="date" id="movWeekEndInput">
-        </div>
-      </div>
       <div class="dropzone" id="movDropzone">
-        <p class="big">Excel de Tabla de Movimientos (ya editado/corregido)</p>
-        <p>El mismo archivo que descargaste y ajustaste — código, detalle, Disponible, Diferencia KL, % Diferencia</p>
-        <button type="button" class="dz-btn" onclick="document.getElementById('movFileInput').click()">Seleccionar archivo</button>
-        <input type="file" id="movFileInput" accept=".xlsx,.xls">
-        <p class="hint" id="movFileName"></p>
+        <p class="big">Tabla de Movimientos (ya editada/corregida)</p>
+        <p>Puedes soltar varios archivos a la vez — uno por cada sede</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('movFileInput').click()">Seleccionar archivo(s)</button>
+        <input type="file" id="movFileInput" accept=".xlsx,.xls" multiple>
       </div>
       <div class="banner error hidden-block" id="movErrorBanner"></div>
 
       <div class="hidden-block" id="movPreviewCard">
-        <div class="balance-block-title">Vista previa de la semana cargada</div>
-        <div id="reportesMovView">
-          <div class="kpi-grid" id="movKpiGrid"></div>
-          <div class="dash-table-wrap">
-            <div class="dash-table-title">Detalle por categoría</div>
-            <div class="table-scroll">
-              <table class="dash-table">
-                <thead><tr><th class="left">Categoría</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
-                <tbody id="movCategoriaBody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <div class="balance-block-title">Archivos cargados</div>
+        <div id="movFilesList"></div>
         <div class="footer-actions">
-          <button class="btn-primary" id="movSaveWeekBtn">Guardar esta semana</button>
-          <button class="btn-secondary" id="movDownloadReportBtn">⬇ Informe interactivo (HTML)</button>
+          <button class="btn-primary" id="movSaveWeekBtn">Guardar todo en el historial</button>
         </div>
         <div class="banner info hidden-block" id="movSaveBanner"></div>
       </div>
 
       <div class="balance-block-title" style="margin-top:26px">Histórico guardado</div>
       <p class="hint" id="movHistLoadingHint">Cargando historial…</p>
-      <div id="movHistView" class="hidden-block">
+      <div id="reportesMovView" class="hidden-block">
         <div class="dash-filters">
           <select id="movGranularity">
             <option value="week">Semanal</option>
@@ -372,12 +345,29 @@
             <option value="year">Anual</option>
           </select>
           <select id="movSedeFilter"></select>
+          <select id="movBloqueFilter"></select>
         </div>
         <div class="kpi-grid" id="movHistKpiGrid"></div>
         <div class="dash-charts">
           <div class="chart-box"><canvas id="chartMovDiferencia"></canvas></div>
           <div class="chart-box"><canvas id="chartMovSedes"></canvas></div>
         </div>
+
+        <div class="dash-table-title">Diferencia KL por bloque (Finas, Pulpas, Segundas...)</div>
+        <p class="hint" id="movDrillHint">Elige una sede específica arriba y haz clic en una barra para ver el detalle de productos de ese bloque.</p>
+        <div class="dash-charts">
+          <div class="chart-box" style="grid-column:1/-1"><canvas id="chartMovBloques"></canvas></div>
+        </div>
+        <div class="dash-table-wrap hidden-block" id="movDrillWrap">
+          <div class="dash-table-title" id="movDrillTitle">Detalle de productos</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Código</th><th class="left">Producto</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+              <tbody id="movDrillTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="dash-table-wrap">
           <div class="dash-table-title">Detalle por periodo</div>
           <div class="table-scroll">

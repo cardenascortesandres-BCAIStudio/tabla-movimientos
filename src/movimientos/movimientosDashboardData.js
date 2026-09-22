@@ -42,7 +42,7 @@ export function aggregateByPeriod(weekRows, granularity = 'week') {
     if (!accBySede.has(sedeName)) accBySede.set(sedeName, new Map());
     const periods = accBySede.get(sedeName);
     if (!periods.has(periodKey)) {
-      periods.set(periodKey, { periodKey, sedeName, disponible: 0, diferenciaKL: 0, weeks: 0, periodStart: w.week_start, periodEnd: w.week_end });
+      periods.set(periodKey, { periodKey, sedeName, disponible: 0, diferenciaKL: 0, weeks: 0, periodStart: w.week_start, periodEnd: w.week_end, byBloque: new Map() });
     }
     const acc = periods.get(periodKey);
     acc.disponible += c.totalDisponible || 0;
@@ -50,6 +50,15 @@ export function aggregateByPeriod(weekRows, granularity = 'week') {
     acc.weeks += 1;
     if (w.week_start && (!acc.periodStart || w.week_start < acc.periodStart)) acc.periodStart = w.week_start;
     if (w.week_end && (!acc.periodEnd || w.week_end > acc.periodEnd)) acc.periodEnd = w.week_end;
+    // Desglose por bloque (Finas/Pulpas/Segundas/... — ver
+    // src/core/movimientosBloques.js), para comparar un bloque específico en
+    // el tiempo, no solo el total de todos los bloques sumados.
+    (c.byCategory || []).forEach(cat => {
+      if (!acc.byBloque.has(cat.category)) acc.byBloque.set(cat.category, { disponible: 0, diferenciaKL: 0 });
+      const b = acc.byBloque.get(cat.category);
+      b.disponible += cat.disponible || 0;
+      b.diferenciaKL += cat.diferenciaKL || 0;
+    });
   });
 
   const bySede = new Map();
@@ -62,7 +71,11 @@ export function aggregateByPeriod(weekRows, granularity = 'week') {
         periodStart: acc.periodStart, periodEnd: acc.periodEnd, sedeName,
         disponible: acc.disponible, diferenciaKL: acc.diferenciaKL,
         pctDiferencia: acc.disponible === 0 ? 0 : acc.diferenciaKL / acc.disponible,
-        weeks: acc.weeks
+        weeks: acc.weeks,
+        byBloque: Array.from(acc.byBloque.entries()).map(([bloque, v]) => ({
+          bloque, disponible: v.disponible, diferenciaKL: v.diferenciaKL,
+          pctDiferencia: v.disponible === 0 ? 0 : v.diferenciaKL / v.disponible
+        }))
       }))
       .sort((a, b) => (a.periodKey < b.periodKey ? -1 : 1));
     bySede.set(sedeName, points);

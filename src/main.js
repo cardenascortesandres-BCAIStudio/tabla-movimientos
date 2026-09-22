@@ -23,9 +23,8 @@ import { MASTER_CATALOG } from './data/masterCatalog.js';
 import { buildCatalogIndex } from './core/catalog.js';
 import { createSedeContext, guessSedeName, processRowsForSede, countAdditionalProducts, generateReportForSede, validateAgainstTotalRow } from './sede/sedeContext.js';
 import { computeAggregate } from './core/aggregate.js';
-import { computeDashboardData, serializeDashboardData } from './dashboard/dashboardData.js';
+import { computeDashboardData } from './dashboard/dashboardData.js';
 import { exportSedeToExcel, exportConsolidatedToExcel } from './export/excelExport.js';
-import { buildInteractiveReportHtml } from './export/htmlReportExport.js';
 import { TEMPLATES, getTemplate, toExcelPalette, DEFAULT_TEMPLATE_ID } from './theme/templates.js';
 import { applyTemplateToDOM } from './theme/applyTheme.js';
 import { DASHBOARD_STYLES, DEFAULT_DASHBOARD_STYLE_ID } from './theme/dashboardStyles.js';
@@ -45,6 +44,8 @@ import { aggregateByPeriod } from './balance/balanceDashboardData.js';
 import { buildBalanceReportHtml } from './export/balanceHtmlReportExport.js';
 
 import { parseFinalMovimientosFile } from './core/parseFinalMovimientos.js';
+import { BLOQUES_CANONICOS } from './core/movimientosBloques.js';
+import { guessWeekFromText } from './core/weekDateGuess.js';
 import * as movimientosApi from './movimientos/movimientosApi.js';
 import { aggregateByPeriod as aggregateMovByPeriod } from './movimientos/movimientosDashboardData.js';
 
@@ -1145,109 +1146,150 @@ function switchReportesType(type) {
 }
 
 // ---------------- Reportes de Tabla de Movimientos ----------------
-let movRawRows = null;      // filas crudas (header:1) del archivo YA editado que se acaba de cargar
-let movParsedData = null;   // forma computeDashboardData() para la semana cargada
 let movHistWeeks = null;    // filas crudas de movimientos_weeks (todas las sedes)
-let chartMovDiferencia, chartMovSedes;
+let chartMovDiferencia, chartMovSedes, chartMovBloques;
+let movBloqueFilter = ''; // '' = todos los bloques sumados (comportamiento de siempre)
 
-function handleMovFile(file) {
-  if (!/\.(xlsx|xls)$/i.test(file.name)) { showMovError(`"${file.name}" no es .xlsx ni .xls.`); return; }
-  el('movErrorBanner').classList.add('hidden-block');
-  el('movFileName').textContent = file.name;
-  if (!el('movSedeInput').value.trim()) el('movSedeInput').value = guessSedeName(file.name);
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      movRawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
-      reparseMovFile();
-    } catch (err) {
-      movRawRows = null;
-      showMovError('No se pudo leer el archivo: ' + err.message);
+// Carga de Tabla de Movimientos (una o varias sedes a la vez, igual que
+// Ventas Diarias) — a diferencia de Ventas, la fecha de la semana no viene
+// clara en el archivo (ver scripts/import_movimientos_history.cjs), así que
+// se adivina con guessWeekFromText pero SIEMPRE queda editable antes de guardar.
+function createMovUploader(ids, onSaved) {
+  let entries = []; // { fileName, sedeName, weekStart, weekEnd, parsed, error }
+  let cachedSedeNames = null;
+
+  async function knownSedeNames() {
+    if (movHistWeeks && movHistWeeks.length) return Array.from(new Set(movHistWeeks.map(w => w.sede_name)));
+    if (!cachedSedeNames) {
+      try {
+        const { sedes } = await movimientosApi.getSedesConHistorial();
+        cachedSedeNames = (sedes || []).map(s => s.sede_name);
+      } catch { cachedSedeNames = []; }
     }
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function showMovError(msg) {
-  const b = el('movErrorBanner');
-  b.classList.remove('hidden-block');
-  b.innerHTML = '⚠ ' + escapeHtml(msg);
-  el('movPreviewCard').classList.add('hidden-block');
-}
-
-function reparseMovFile() {
-  if (!movRawRows) return;
-  const sedeName = el('movSedeInput').value.trim() || 'Sede';
-  const data = parseFinalMovimientosFile(movRawRows, sedeName);
-  if (!data) {
-    showMovError('No se encontraron las columnas "Disponible"/"Diferencia KL" (o los bloques de categoría) en este archivo — debe ser el Excel ya generado por la herramienta.');
-    movParsedData = null;
-    return;
+    return cachedSedeNames;
   }
-  movParsedData = data;
-  el('movErrorBanner').classList.add('hidden-block');
-  renderMovPreview();
-}
 
-function renderMovPreview() {
-  if (!movParsedData) return;
-  const d = movParsedData;
-  el('movPreviewCard').classList.remove('hidden-block');
-  const pctGlobal = d.totalDisponible === 0 ? 0 : d.totalDiferencia / d.totalDisponible;
-  el('movKpiGrid').innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">Categorías</div><div class="kpi-value">${d.byCategory.size}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Productos</div><div class="kpi-value">${d.allProductRows.length}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Disponible total</div><div class="kpi-value">${fmt(d.totalDisponible)}</div></div>
-    <div class="kpi-card ${d.totalDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Diferencia KL total</div><div class="kpi-value">${fmt(d.totalDiferencia)}</div></div>
-    <div class="kpi-card ${d.totalDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">% Diferencia global</div><div class="kpi-value">${fmtPct(pctGlobal)}</div></div>
-    <div class="kpi-card kpi-neg"><div class="kpi-label">Productos con faltante</div><div class="kpi-value">${d.totalProductosNeg}</div></div>`;
-
-  el('movCategoriaBody').innerHTML = Array.from(d.byCategory.entries()).map(([category, agg]) => {
-    const pct = agg.disponible === 0 ? 0 : agg.diferenciaKL / agg.disponible;
-    const cls = agg.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(agg.diferenciaKL) < 0.01 ? 'diff-zero' : '');
-    return `<tr><td class="left">${escapeHtml(category)}</td><td>${fmt(agg.disponible)}</td><td class="${cls}">${fmt(agg.diferenciaKL)}</td><td>${fmtPct(pct)}</td></tr>`;
-  }).join('') || '<tr><td colspan="4" class="left hint">Sin categorías.</td></tr>';
-}
-
-async function saveMovWeek() {
-  if (!movParsedData) return;
-  const sedeName = el('movSedeInput').value.trim();
-  const weekStart = el('movWeekStartInput').value;
-  const weekEnd = el('movWeekEndInput').value;
-  const banner = el('movSaveBanner');
-  if (!sedeName || !weekStart) {
-    banner.className = 'banner error'; banner.classList.remove('hidden-block');
-    banner.textContent = '⚠ Escribe la sede y la fecha de inicio de semana antes de guardar.';
-    return;
+  function render() {
+    el(ids.filesList).innerHTML = entries.map((e, i) => {
+      if (e.error) {
+        return `<div class="vent-file-row vent-file-error">
+          <div class="vent-file-name">${escapeHtml(e.fileName)}</div>
+          <div class="vent-file-summary">⚠ ${escapeHtml(e.error)}</div>
+          <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
+        </div>`;
+      }
+      const pctGlobal = e.parsed.totalDisponible === 0 ? 0 : e.parsed.totalDiferencia / e.parsed.totalDisponible;
+      return `<div class="vent-file-row">
+        <div class="vent-file-name">${escapeHtml(e.fileName)}</div>
+        <input type="text" data-sede-idx="${i}" value="${escapeHtml(e.sedeName)}" placeholder="Sede">
+        <input type="date" data-start-idx="${i}" value="${e.weekStart || ''}" title="Semana — inicio">
+        <input type="date" data-end-idx="${i}" value="${e.weekEnd || ''}" title="Semana — fin">
+        <div class="vent-file-summary">${e.parsed.byCategory.size} bloques · Disponible ${fmt(e.parsed.totalDisponible)} · Diferencia ${fmt(e.parsed.totalDiferencia)} KL (${fmtPct(pctGlobal)})</div>
+        <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
+      </div>`;
+    }).join('') || '<p class="hint">No hay archivos cargados.</p>';
+    el(ids.filesList).querySelectorAll('input[data-sede-idx]').forEach(inp => {
+      inp.addEventListener('input', () => { entries[+inp.dataset.sedeIdx].sedeName = inp.value.trim(); });
+    });
+    el(ids.filesList).querySelectorAll('input[data-start-idx]').forEach(inp => {
+      inp.addEventListener('input', () => { entries[+inp.dataset.startIdx].weekStart = inp.value; });
+    });
+    el(ids.filesList).querySelectorAll('input[data-end-idx]').forEach(inp => {
+      inp.addEventListener('input', () => { entries[+inp.dataset.endIdx].weekEnd = inp.value; });
+    });
+    el(ids.filesList).querySelectorAll('button[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => { entries.splice(+btn.dataset.remove, 1); render(); });
+    });
+    el(ids.previewCard).classList.toggle('hidden-block', entries.length === 0);
   }
-  try {
-    const computed = {
-      totalDisponible: movParsedData.totalDisponible,
-      totalDiferencia: movParsedData.totalDiferencia,
-      totalProductosNeg: movParsedData.totalProductosNeg,
-      byCategory: Array.from(movParsedData.byCategory.entries()).map(([category, v]) => ({ category, ...v }))
-    };
-    await movimientosApi.saveWeek({ sedeName, weekKey: weekStart, weekStart, weekEnd: weekEnd || null, computed });
-    banner.className = 'banner info'; banner.classList.remove('hidden-block');
-    banner.textContent = '✓ Semana guardada en el historial.';
-    movHistWeeks = null; // fuerza recarga del histórico
-    loadMovHistData(); // refresca de inmediato la sección de abajo, sin esperar a que se vuelva a abrir la pestaña
-  } catch (err) {
-    banner.className = 'banner error'; banner.classList.remove('hidden-block');
-    banner.textContent = '⚠ No se pudo guardar: ' + err.message;
+
+  function handleFiles(files) {
+    el(ids.errorBanner).classList.add('hidden-block');
+    let pending = files.length;
+    files.forEach(file => {
+      if (!/\.(xlsx|xls)$/i.test(file.name)) {
+        entries.push({ fileName: file.name, error: `"${file.name}" no es .xlsx ni .xls.` });
+        if (--pending === 0) render();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+          const sheetName = wb.SheetNames[0];
+          const ws = wb.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+          const rawGuess = guessSedeName(file.name.replace(/\b(tabla|movimientos?|por|producto)\b/gi, '').trim() || file.name);
+          const names = await knownSedeNames();
+          const contentGuess = guessSedeFromVentasRows(rows, names); // mismo cruce contra sedes conocidas, ver ventasFileParse.js
+          const sedeName = contentGuess || matchKnownSede(rawGuess, names) || rawGuess;
+          const parsed = parseFinalMovimientosFile(rows, sedeName);
+          if (!parsed) {
+            entries.push({ fileName: file.name, error: 'No se encontraron las columnas "Disponible"/"Diferencia KL" en este archivo — debe ser el Excel ya generado por la herramienta (ya editado/corregido).' });
+          } else {
+            const week = guessWeekFromText(sheetName) || guessWeekFromText(file.name);
+            entries.push({ fileName: file.name, sedeName, weekStart: week ? week.weekStart : '', weekEnd: week ? week.weekEnd : '', parsed });
+          }
+        } catch (err) {
+          entries.push({ fileName: file.name, error: 'No se pudo leer el archivo: ' + err.message });
+        }
+        if (--pending === 0) render();
+      };
+      reader.readAsArrayBuffer(file);
+    });
   }
+
+  async function saveAll() {
+    const valid = entries.filter(e => !e.error && e.sedeName && e.weekStart);
+    const banner = el(ids.saveBanner);
+    if (!valid.length) {
+      banner.className = 'banner error'; banner.classList.remove('hidden-block');
+      banner.textContent = '⚠ No hay archivos listos para guardar (revisa que cada fila tenga sede y fecha de inicio de semana).';
+      return;
+    }
+    const btn = el(ids.saveBtn);
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    for (let i = 0; i < valid.length; i++) {
+      const e = valid[i];
+      btn.textContent = `Guardando ${i + 1}/${valid.length}…`;
+      banner.className = 'banner info'; banner.classList.remove('hidden-block');
+      banner.textContent = `Guardando ${i + 1} de ${valid.length}: ${e.sedeName} (semana del ${e.weekStart})…`;
+      try {
+        const computed = {
+          totalDisponible: e.parsed.totalDisponible,
+          totalDiferencia: e.parsed.totalDiferencia,
+          totalProductosNeg: e.parsed.totalProductosNeg,
+          byCategory: Array.from(e.parsed.byCategory.entries()).map(([category, v]) => ({ category, ...v })),
+          allProductRows: e.parsed.allProductRows // para el detalle de productos por bloque en el histórico
+        };
+        await movimientosApi.saveWeek({ sedeName: e.sedeName, weekKey: e.weekStart, weekStart: e.weekStart, weekEnd: e.weekEnd || null, computed });
+      } catch (err) {
+        btn.disabled = false; btn.textContent = originalText;
+        banner.className = 'banner error';
+        banner.textContent = `⚠ Error guardando ${e.sedeName}: ${err.message}`;
+        return;
+      }
+    }
+    btn.disabled = false; btn.textContent = originalText;
+    banner.className = 'banner info';
+    banner.textContent = `✓ ${valid.length} semana(s) guardada(s) en el historial.`;
+    entries = [];
+    render();
+    movHistWeeks = null; // fuerza recarga
+    if (onSaved) await onSaved();
+  }
+
+  return { handleFiles, saveAll };
 }
 
-function downloadMovReport() {
-  if (!movParsedData) return;
-  const html = buildInteractiveReportHtml(serializeDashboardData(movParsedData), chartJsRawSource, {});
-  downloadBlob(html, 'movimientos_' + safeName(el('movSedeInput').value) + '.html', 'text/html');
-}
+const movUploader = createMovUploader({
+  errorBanner: 'movErrorBanner', previewCard: 'movPreviewCard', filesList: 'movFilesList',
+  saveBtn: 'movSaveWeekBtn', saveBanner: 'movSaveBanner'
+}, loadMovHistData);
 
 async function loadMovHistData() {
-  el('movHistView').classList.add('hidden-block');
+  el('reportesMovView').classList.add('hidden-block');
   el('movHistLoadingHint').classList.remove('hidden-block');
   el('movHistLoadingHint').textContent = 'Cargando historial…';
   try {
@@ -1259,11 +1301,21 @@ async function loadMovHistData() {
     }
     el('movHistLoadingHint').classList.toggle('hidden-block', !fromCache);
     if (fromCache) el('movHistLoadingHint').textContent = 'Mostrando el último historial disponible en este equipo (sin conexión con el servidor ahora mismo).';
-    el('movHistView').classList.remove('hidden-block');
+    el('reportesMovView').classList.remove('hidden-block');
     renderMovHist();
   } catch (err) {
     el('movHistLoadingHint').textContent = '⚠ No se pudo cargar el historial: ' + err.message;
   }
+}
+
+// Valor a graficar/tabular para un punto ya agregado: el total (todos los
+// bloques sumados, comportamiento de siempre) o un bloque específico — ver
+// selector "Bloque" agregado a pedido explícito del usuario para comparar
+// Finas/Pulpas/Segundas/... entre sedes y en el tiempo, no solo el total.
+function movMetricFor(point) {
+  if (!movBloqueFilter) return { disponible: point.disponible, diferenciaKL: point.diferenciaKL, pctDiferencia: point.pctDiferencia };
+  const b = (point.byBloque || []).find(x => x.bloque === movBloqueFilter);
+  return b ? { disponible: b.disponible, diferenciaKL: b.diferenciaKL, pctDiferencia: b.pctDiferencia } : { disponible: 0, diferenciaKL: 0, pctDiferencia: 0 };
 }
 
 function renderMovHist() {
@@ -1277,20 +1329,29 @@ function renderMovHist() {
   if (data.sedeNames.includes(prevSede)) sedeSel.value = prevSede;
   const sedeFilter = sedeSel.value;
 
+  const bloqueSel = el('movBloqueFilter');
+  if (bloqueSel.options.length <= 1) {
+    bloqueSel.innerHTML = '<option value="">Todos los bloques</option>' + BLOQUES_CANONICOS.map(b => `<option>${escapeHtml(b)}</option>`).join('');
+  }
+  bloqueSel.value = movBloqueFilter;
+
   const allPoints = Array.from(data.bySede.values()).flat().filter(p => !sedeFilter || p.sedeName === sedeFilter);
   const lastPeriod = data.periodKeysSorted[data.periodKeysSorted.length - 1];
   const lastPoints = allPoints.filter(p => p.periodKey === lastPeriod);
-  const lastDisponible = lastPoints.reduce((a, p) => a + p.disponible, 0);
-  const lastDiferencia = lastPoints.reduce((a, p) => a + p.diferenciaKL, 0);
+  const lastMetrics = lastPoints.map(movMetricFor);
+  const lastDisponible = lastMetrics.reduce((a, m) => a + m.disponible, 0);
+  const lastDiferencia = lastMetrics.reduce((a, m) => a + m.diferenciaKL, 0);
   const lastPct = lastDisponible === 0 ? 0 : lastDiferencia / lastDisponible;
   const GRAN_LABEL = { week: 'semana', month: 'mes', year: 'año' };
+  const bloqueLabel = movBloqueFilter ? ' — ' + movBloqueFilter : '';
   el('movHistKpiGrid').innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Sedes con historial</div><div class="kpi-value">${data.sedeNames.length}</div></div>
     <div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">${movHistWeeks.length}</div></div>
-    <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Diferencia KL — último ${GRAN_LABEL[granularity]}</div><div class="kpi-value">${fmt(lastDiferencia)}</div></div>
-    <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">% Diferencia — último ${GRAN_LABEL[granularity]}</div><div class="kpi-value">${fmtPct(lastPct)}</div></div>`;
+    <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Diferencia KL — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmt(lastDiferencia)}</div></div>
+    <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">% Diferencia — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmtPct(lastPct)}</div></div>`;
 
   renderMovHistCharts(data, sedeFilter);
+  renderMovBloquesChart(data, sedeFilter);
   renderMovHistTable(data, sedeFilter);
 }
 
@@ -1298,23 +1359,89 @@ function renderMovHistCharts(data, sedeFilter) {
   const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
   const labels = data.periodKeysSorted.map(k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const palette = SEDE_PALETTE;
+  const metricLabel = movBloqueFilter ? 'Diferencia KL' + ' — ' + movBloqueFilter : 'Diferencia KL';
 
   if (chartMovDiferencia) chartMovDiferencia.destroy();
   const diffDatasets = series.map(([sedeName, points], i) => {
-    const byPeriod = new Map(points.map(p => [p.periodKey, p.diferenciaKL]));
+    const byPeriod = new Map(points.map(p => [p.periodKey, movMetricFor(p).diferenciaKL]));
     return { label: sedeName, data: data.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
   });
-  const diffOpts = dashboardChartOptions('Diferencia KL en el tiempo', 'reportesMovView');
+  const diffOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesMovView');
   diffOpts.plugins.legend.display = series.length > 1;
   chartMovDiferencia = new Chart(el('chartMovDiferencia').getContext('2d'), { type: 'line', data: { labels, datasets: diffDatasets }, options: diffOpts });
 
   if (chartMovSedes) chartMovSedes.destroy();
-  const diffBySede = series.map(([sedeName, points]) => [sedeName, points.reduce((a, p) => a + p.diferenciaKL, 0)]);
+  const diffBySede = series.map(([sedeName, points]) => [sedeName, points.reduce((a, p) => a + movMetricFor(p).diferenciaKL, 0)]);
   const sedeLabels = diffBySede.map(([s]) => s), sedeValues = diffBySede.map(([, v]) => v);
   chartMovSedes = new Chart(el('chartMovSedes').getContext('2d'), {
     type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues, backgroundColor: chartColors(sedeValues, 'reportesMovView'), borderRadius: 6 }] },
-    options: Object.assign(dashboardChartOptions('Diferencia KL acumulada por sede', 'reportesMovView'), { indexAxis: 'y' })
+    options: Object.assign(dashboardChartOptions(metricLabel + ' acumulada por sede', 'reportesMovView'), { indexAxis: 'y' })
   });
+}
+
+// "Diferencia KL por bloque": ranking de los 12 bloques (Finas/Pulpas/
+// Segundas/...) para el alcance actual (sede + todo el periodo visible) — a
+// pedido explícito del usuario, para comparar los bloques entre sí de un
+// vistazo. Clic en una barra abre el detalle de productos de ese bloque
+// (semana más reciente con datos guardados, ver renderMovProductDrilldown).
+function renderMovBloquesChart(data, sedeFilter) {
+  if (chartMovBloques) chartMovBloques.destroy();
+  const points = Array.from(data.bySede.entries())
+    .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
+    .flatMap(([, pts]) => pts);
+  const acc = new Map();
+  points.forEach(p => (p.byBloque || []).forEach(b => {
+    if (!acc.has(b.bloque)) acc.set(b.bloque, { disponible: 0, diferenciaKL: 0 });
+    const a = acc.get(b.bloque);
+    a.disponible += b.disponible;
+    a.diferenciaKL += b.diferenciaKL;
+  }));
+  const pairs = BLOQUES_CANONICOS
+    .map(bloque => [bloque, (acc.get(bloque) || { diferenciaKL: 0 }).diferenciaKL])
+    .sort((a, b) => a[1] - b[1]); // ascendente: el bloque con mayor faltante primero
+  const labels = pairs.map(p => p[0]);
+  const values = pairs.map(p => p[1]);
+  const title = 'Diferencia KL por bloque' + (sedeFilter ? ' — ' + sedeFilter : ' — todas las sedes');
+  const opts = Object.assign(dashboardChartOptions(title, 'reportesMovView'), {
+    indexAxis: 'y',
+    onClick: (evt, elements) => {
+      if (!elements.length) return;
+      renderMovProductDrilldown(labels[elements[0].index], sedeFilter);
+    }
+  });
+  chartMovBloques = new Chart(el('chartMovBloques').getContext('2d'), {
+    type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: chartColors(values, 'reportesMovView'), borderRadius: 6 }] }, options: opts
+  });
+  el('movDrillHint').classList.toggle('hidden-block', !!sedeFilter);
+}
+
+// Detalle de productos de un bloque, de la semana más reciente guardada
+// para esa sede — "ver las diferencias internas de cada bloque" que pidió
+// el usuario, sin tener que descargar de nuevo el Excel de esa semana.
+function renderMovProductDrilldown(bloque, sedeFilter) {
+  const wrap = el('movDrillWrap');
+  wrap.classList.remove('hidden-block');
+  if (!sedeFilter) {
+    el('movDrillTitle').textContent = 'Elige una sede específica (no "todas las sedes") para ver el detalle de productos de este bloque.';
+    el('movDrillTableBody').innerHTML = '';
+    return;
+  }
+  const weeksSede = (movHistWeeks || []).filter(w => w.sede_name === sedeFilter).slice().sort((a, b) => (String(a.week_start) < String(b.week_start) ? 1 : -1));
+  const latest = weeksSede[0];
+  const rows = latest?.computed?.allProductRows;
+  if (!latest || !rows) {
+    el('movDrillTitle').textContent = `Sin detalle de productos guardado para ${sedeFilter} todavía.`;
+    el('movDrillTableBody').innerHTML = '';
+    return;
+  }
+  const productos = rows.filter(p => p.category === bloque).sort((a, b) => a.diferenciaKL - b.diferenciaKL);
+  const weekLabel = String(latest.week_start).slice(0, 10) + (latest.week_end ? ' → ' + String(latest.week_end).slice(0, 10) : '');
+  el('movDrillTitle').textContent = `Detalle de productos — ${bloque} en ${sedeFilter}, semana ${weekLabel}`;
+  el('movDrillTableBody').innerHTML = productos.map(p => {
+    const cls = p.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(p.diferenciaKL) < 0.01 ? 'diff-zero' : '');
+    const pct = p.disponible === 0 ? 0 : p.diferenciaKL / p.disponible;
+    return `<tr><td class="left code">${escapeHtml(p.code)}</td><td class="left">${escapeHtml(p.name)}</td><td>${fmt(p.disponible)}</td><td class="${cls}">${fmt(p.diferenciaKL)}</td><td>${fmtPct(pct)}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="left hint">Sin productos con diferencia en este bloque esa semana.</td></tr>';
 }
 
 function renderMovHistTable(data, sedeFilter) {
@@ -1322,8 +1449,9 @@ function renderMovHistTable(data, sedeFilter) {
   if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
   rows = rows.slice().sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
   el('movHistTableBody').innerHTML = rows.map(r => {
-    const cls = r.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(r.diferenciaKL) < 0.01 ? 'diff-zero' : '');
-    return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmt(r.disponible)}</td><td class="${cls}">${fmt(r.diferenciaKL)}</td><td>${fmtPct(r.pctDiferencia)}</td></tr>`;
+    const m = movMetricFor(r);
+    const cls = m.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(m.diferenciaKL) < 0.01 ? 'diff-zero' : '');
+    return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmt(m.disponible)}</td><td class="${cls}">${fmt(m.diferenciaKL)}</td><td>${fmtPct(m.pctDiferencia)}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="left hint">Sin datos para este filtro.</td></tr>';
 }
 
@@ -1869,12 +1997,11 @@ document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => {
 el('reportesTypeBalanceBtn').addEventListener('click', () => switchReportesType('balance'));
 el('reportesTypeMovimientosBtn').addEventListener('click', () => switchReportesType('movimientos'));
 el('reportesTypeAuditoriasBtn').addEventListener('click', () => switchReportesType('auditorias'));
-wireBalanceDropzone('movDropzone', 'movFileInput', handleMovFile);
-el('movSedeInput').addEventListener('input', reparseMovFile);
-el('movSaveWeekBtn').addEventListener('click', saveMovWeek);
-el('movDownloadReportBtn').addEventListener('click', downloadMovReport);
+wireMultiFileDropzone('movDropzone', 'movFileInput', movUploader.handleFiles);
+el('movSaveWeekBtn').addEventListener('click', movUploader.saveAll);
 el('movGranularity').addEventListener('change', renderMovHist);
 el('movSedeFilter').addEventListener('change', renderMovHist);
+el('movBloqueFilter').addEventListener('change', () => { movBloqueFilter = el('movBloqueFilter').value; renderMovHist(); });
 el('audReportesGranularity').addEventListener('change', renderAudReportes);
 el('audReportesSedeFilter').addEventListener('change', renderAudReportes);
 el('audReportesDownloadBtn').addEventListener('click', downloadAudReportesReport);

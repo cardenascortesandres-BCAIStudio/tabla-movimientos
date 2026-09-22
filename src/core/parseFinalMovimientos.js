@@ -8,6 +8,7 @@
 
 import { detectHeaderRow } from './headerDetection.js';
 import { normText, normalizeCode } from './normalize.js';
+import { matchCanonicalBloque, BLOQUE_SIN_CLASIFICAR } from './movimientosBloques.js';
 
 function findCol(headerRow, matchers) {
   for (let c = 0; c < headerRow.length; c++) {
@@ -78,16 +79,23 @@ export function parseFinalMovimientosFile(rows, sedeName) {
   let totalDisponible = 0, totalDiferencia = 0;
 
   sections.forEach(sec => {
+    // El nombre de categoría del archivo varía de mes a mes ("PULPA" vs
+    // "PULPAS") y a veces una fila de producto sin código se confunde con un
+    // encabezado de categoría (ver Casona 07-13 sep 2026) — se normaliza a
+    // uno de los 12 bloques fijos del negocio, o a "Sin clasificar" si no
+    // corresponde a ninguno (nunca se pierde el dato, pero tampoco infla un
+    // bloque real con algo que no le pertenece).
+    const category = matchCanonicalBloque(sec.category) || BLOQUE_SIN_CLASIFICAR;
     const catDisp = sec.items.reduce((a, i) => a + i.disponible, 0);
     const catDiff = sec.items.reduce((a, i) => a + i.diferenciaKL, 0);
-    if (!byCategory.has(sec.category)) byCategory.set(sec.category, { disponible: 0, diferenciaKL: 0 });
-    const agg = byCategory.get(sec.category);
+    if (!byCategory.has(category)) byCategory.set(category, { disponible: 0, diferenciaKL: 0 });
+    const agg = byCategory.get(category);
     agg.disponible += catDisp;
     agg.diferenciaKL += catDiff;
     sec.items.forEach(it => {
       const pct = it.pct != null ? it.pct : (catDisp === 0 ? 0 : it.diferenciaKL / catDisp);
       allProductRows.push({
-        sede: sedeName, category: sec.category, code: it.code, name: it.name,
+        sede: sedeName, category, code: it.code, name: it.name,
         diferenciaKL: it.diferenciaKL, disponible: it.disponible, pct
       });
     });

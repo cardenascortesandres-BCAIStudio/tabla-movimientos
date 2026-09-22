@@ -21,6 +21,7 @@ import { MASTER_CATALOG } from '../src/data/masterCatalog.js';
 import { createSedeContext, processRowsForSede, generateReportForSede } from '../src/sede/sedeContext.js';
 import { addSedeSheet, addNovedadesSheet } from '../src/export/excelExport.js';
 import { parseFinalMovimientosFile } from '../src/core/parseFinalMovimientos.js';
+import { matchCanonicalBloque } from '../src/core/movimientosBloques.js';
 import { aggregateByPeriod as aggregateMovByPeriod } from '../src/movimientos/movimientosDashboardData.js';
 import ExcelJS from 'exceljs';
 
@@ -362,8 +363,11 @@ describe('parseFinalMovimientosFile — lee un Excel YA EDITADO (Disponible/Dife
     const data = parseFinalMovimientosFile(rows, 'Chiminangos');
     expect(data).not.toBeNull();
     expect(data.allProductRows.map(p => p.code)).toEqual(['1102', '1105', '1200']);
-    expect(data.byCategory.get('FINAS')).toEqual({ disponible: 200, diferenciaKL: -50 });
-    expect(data.byCategory.get('PULPA')).toEqual({ disponible: 10, diferenciaKL: -10 });
+    // "FINAS"/"PULPA" se normalizan a los bloques canónicos del negocio
+    // (ver src/core/movimientosBloques.js) — "Pulpas" cubre tanto "PULPA"
+    // como "PULPAS" (el archivo real cambia de plural a singular según el mes).
+    expect(data.byCategory.get('Finas')).toEqual({ disponible: 200, diferenciaKL: -50 });
+    expect(data.byCategory.get('Pulpas')).toEqual({ disponible: 10, diferenciaKL: -10 });
     expect(data.totalDisponible).toBe(210);
     expect(data.totalDiferencia).toBe(-60);
     expect(data.totalProductosNeg).toBe(2); // 1102 (-50) y 1200 (-10); 1105 tiene 0
@@ -374,6 +378,23 @@ describe('parseFinalMovimientosFile — lee un Excel YA EDITADO (Disponible/Dife
   it('devuelve null si el archivo no tiene las columnas Disponible/Diferencia KL', () => {
     const badRows = [['Código', 'Detalle', 'Algo'], ['1102', 'X', 5]];
     expect(parseFinalMovimientosFile(badRows, 'Chiminangos')).toBeNull();
+  });
+});
+
+describe('matchCanonicalBloque — normaliza el nombre de categoría a uno de los 12 bloques fijos', () => {
+  it('reconoce los 12 nombres reales (tal como aparecen en los archivos de cada sede)', () => {
+    const casos = [
+      ['FINAS', 'Finas'], ['PULPA', 'Pulpas'], ['PULPAS', 'Pulpas'], ['SEGUNDAS', 'Segundas'],
+      ['MOLIDA', 'Molida'], ['COSTILLA  DE RES', 'Costilla de Res'], ['VISCERAS', 'Vísceras'],
+      ['PULPA DE CERDO', 'Pulpa de Cerdo'], ['TOCINETA & COSTILLA', 'Tocineta y Costilla'],
+      ['OTROS CORTES', 'Otros Cortes'], ['POLLO', 'Pollo'], ['PESCADO', 'Pescado'], ['SALSAMENTARIA', 'Salsamentaria'],
+    ];
+    casos.forEach(([raw, esperado]) => expect(matchCanonicalBloque(raw)).toBe(esperado));
+  });
+
+  it('devuelve null para un texto que no corresponde a ningún bloque real (ej. producto mal clasificado)', () => {
+    expect(matchCanonicalBloque('TOCINETA BARRIGA PREMIUM AL VAC ENT')).toBeNull();
+    expect(matchCanonicalBloque('PRODUCTOS ADICIONALES (FUERA DEL LISTADO MAESTRO)')).toBeNull();
   });
 });
 
@@ -389,6 +410,19 @@ describe('movimientos: aggregateByPeriod — no rompe con fechas ISO completas d
     expect(point.periodLabel).toBe('jul 2026');
     expect(point.disponible).toBe(150);
     expect(point.diferenciaKL).toBe(-5);
+  });
+
+  it('suma byCategory de varias semanas del mismo periodo en byBloque, con % global (no promedio de %)', () => {
+    const weekRows = [
+      { sede_name: 'Alameda', week_start: '2026-07-06', computed: { totalDisponible: 100, totalDiferencia: -10, byCategory: [{ category: 'Finas', disponible: 60, diferenciaKL: -30 }, { category: 'Pulpas', disponible: 40, diferenciaKL: 20 }] } },
+      { sede_name: 'Alameda', week_start: '2026-07-13', computed: { totalDisponible: 100, totalDiferencia: 10, byCategory: [{ category: 'Finas', disponible: 40, diferenciaKL: 10 }] } },
+    ];
+    const data = aggregateMovByPeriod(weekRows, 'month');
+    const point = data.bySede.get('Alameda')[0];
+    const finas = point.byBloque.find(b => b.bloque === 'Finas');
+    const pulpas = point.byBloque.find(b => b.bloque === 'Pulpas');
+    expect(finas).toEqual({ bloque: 'Finas', disponible: 100, diferenciaKL: -20, pctDiferencia: -0.2 });
+    expect(pulpas).toEqual({ bloque: 'Pulpas', disponible: 40, diferenciaKL: 20, pctDiferencia: 0.5 });
   });
 });
 

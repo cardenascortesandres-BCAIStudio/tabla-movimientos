@@ -267,6 +267,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 .vent-file-row.vent-file-error{background:var(--rojo-bg);}
 .vent-file-row .vent-file-name{font-weight:600;font-size:13px;flex:1 1 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .vent-file-row input[type=text]{padding:6px 9px;border:1px solid var(--gris-2);border-radius:6px;font-size:12.5px;width:150px;font-family:var(--font);}
+.vent-file-row input[type=date]{padding:6px 9px;border:1px solid var(--gris-2);border-radius:6px;font-size:12.5px;width:132px;font-family:var(--font);}
 .vent-file-row .vent-file-summary{font-size:12px;color:#666;flex:1 1 260px;}
 .periodo-picker{position:relative;display:inline-block;}
 .periodo-popover{
