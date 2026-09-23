@@ -746,12 +746,13 @@ async function exportBalanceExcel() {
 async function downloadBalanceReport() {
   const banner = el('balanceSaveBanner');
   try {
-    const [{ weeks }, diasResult, presResult] = await Promise.all([
+    const [{ weeks }, diasResult, presResult, movResult] = await Promise.all([
       balanceApi.getAllWeeks(),
       ventasApi.getAllDias().catch(() => ({ dias: [] })),
-      ventasApi.getPresupuestos().catch(() => ({ presupuestos: [] }))
+      ventasApi.getPresupuestos().catch(() => ({ presupuestos: [] })),
+      movimientosApi.getAllWeeks().catch(() => ({ weeks: [] }))
     ]);
-    const html = buildBalanceReportHtml(weeks, diasResult.dias || [], presResult.presupuestos || [], chartJsRawSource, {});
+    const html = buildBalanceReportHtml(weeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], chartJsRawSource, {});
     downloadBlob(html, 'balance_comparativo.html', 'text/html');
   } catch (err) {
     banner.className = 'banner error';
@@ -1137,7 +1138,7 @@ function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInSc
 
 async function downloadReportesReport() {
   if (!reportesWeeks) return;
-  const html = buildBalanceReportHtml(reportesWeeks, ventasAllDias || [], ventasPresupuestos || [], chartJsRawSource, {});
+  const html = buildBalanceReportHtml(reportesWeeks, ventasAllDias || [], ventasPresupuestos || [], movHistWeeks || [], chartJsRawSource, {});
   downloadBlob(html, 'reportes_brangus.html', 'text/html');
 }
 

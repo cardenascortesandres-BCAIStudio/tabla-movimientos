@@ -12,15 +12,19 @@
 import { CHART_DOWNLOAD_JS, CHART_GLOW_JS } from '../theme/chartDownloadPlugin.js';
 import { SEDE_PALETTE_JS } from '../theme/sedePalette.js';
 
-export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuestoRows, chartJsSource, meta) {
+export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuestoRows, rawMovWeekRows, chartJsSource, meta) {
   const rawWeeks = (rawWeekRows || []).map(w => ({
     sedeName: w.sede_name, weekStart: w.week_start, weekEnd: w.week_end, computed: w.computed || {}
   }));
   const rawVentas = (rawVentaRows || []).map(d => ({ sedeName: d.sede_name, fecha: d.fecha, valorVenta: Number(d.valor_venta) || 0 }));
   const rawPresupuestos = (rawPresupuestoRows || []).map(p => ({ sedeName: p.sede_name, anio: p.anio, mes: p.mes, monto: Number(p.monto) || 0 }));
+  const rawMovWeeks = (rawMovWeekRows || []).map(w => ({
+    sedeName: w.sede_name, weekStart: w.week_start, weekEnd: w.week_end, computed: w.computed || {}
+  }));
   const dataJson = JSON.stringify(rawWeeks);
   const ventasJson = JSON.stringify(rawVentas);
   const presupuestosJson = JSON.stringify(rawPresupuestos);
+  const movJson = JSON.stringify(rawMovWeeks);
   const generatedAt = new Date().toLocaleString('es-CO');
   const title = `Reportes Brangus${meta?.periodo ? ' — ' + meta.periodo : ''}`;
   const sedeCount = new Set(rawWeeks.map(w => w.sedeName)).size;
@@ -76,6 +80,7 @@ ${VIEWER_CSS}
     <button class="view-tab active" data-view="tiempo">📈 Serie de tiempo</button>
     <button class="view-tab" data-view="sedes">📊 Comparativa entre sedes</button>
     <button class="view-tab" data-view="presupuesto">🎯 Presupuesto</button>
+    <button class="view-tab" data-view="mermas">📋 Mermas</button>
   </nav>
 
   <div class="filters">
@@ -90,6 +95,7 @@ ${VIEWER_CSS}
       <option value="venta">Ventas</option>
     </select>
     <select id="filterSede"></select>
+    <select id="filterBloque"></select>
     <div class="periodo-picker">
       <button type="button" class="theme-btn" id="periodoBtn">📅 Fechas</button>
       <div class="periodo-popover hidden-block" id="periodoPopover">
@@ -113,6 +119,24 @@ ${VIEWER_CSS}
       <tbody id="presuTableBody"></tbody>
     </table>
   </section>
+  <section class="view-panel hidden-block" id="view-mermas">
+    <div class="kpi-grid" id="mermasKpiGrid" style="margin-bottom:16px"></div>
+    <div class="chart-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+      <div class="chart-box"><canvas id="chartMermasTiempo"></canvas></div>
+      <div class="chart-box"><canvas id="chartMermasSedes"></canvas></div>
+    </div>
+    <p class="hint" id="mermasDrillHint">Elige una sede específica arriba y haz clic en una barra para ver el detalle de productos de ese bloque.</p>
+    <div class="chart-box" style="margin-bottom:16px"><canvas id="chartMermasBloques"></canvas></div>
+    <table class="dtable hidden-block" id="mermasDrillTable">
+      <caption id="mermasDrillTitle" style="text-align:left;font-weight:700;margin-bottom:8px;">Detalle de productos</caption>
+      <thead><tr><th class="left">Código</th><th class="left">Producto</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+      <tbody id="mermasDrillTableBody"></tbody>
+    </table>
+    <table class="dtable" id="mermasTable" style="margin-top:16px;">
+      <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+      <tbody id="mermasTableBody"></tbody>
+    </table>
+  </section>
 
   <p class="hint">Informe autocontenido — se puede abrir sin conexión a internet ni instalar nada. Los datos mostrados son un corte fijo del momento de la exportación.</p>
 </div>
@@ -127,6 +151,7 @@ ${SEDE_PALETTE_JS}
 const RAW_WEEKS = ${dataJson};
 const RAW_VENTAS = ${ventasJson};
 const RAW_PRESUPUESTOS = ${presupuestosJson};
+const RAW_MOV_WEEKS = ${movJson};
 ${AGG_JS}
 ${VIEWER_JS}
 </script>
@@ -305,11 +330,55 @@ function aggregateVentasByPeriod(rawVentas, granularity){
   const periodKeysSorted = Array.from(byPeriod.keys()).sort();
   return { granularity, bySede, byPeriod: Array.from(byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })), periodKeysSorted, sedeNames: bySede.map(s => s.sedeName).sort() };
 }
+
+// Tabla de Movimientos (mermas) — mismo molde que aggregateByPeriod de
+// arriba (weekStart/weekEnd reales, no lunes-domingo), pero además suma
+// byCategory (guardado ya canónico: Finas/Pulpas/Segundas/...) como
+// byBloque, para poder comparar UN bloque específico en el tiempo/entre
+// sedes — puerto de src/movimientos/movimientosDashboardData.js.
+const BLOQUES_CANONICOS = ['Finas', 'Pulpas', 'Segundas', 'Molida', 'Costilla de Res', 'Vísceras', 'Pulpa de Cerdo', 'Tocineta y Costilla', 'Otros Cortes', 'Pollo', 'Pescado', 'Salsamentaria'];
+function aggregateMovByPeriod(rawMovWeeks, granularity){
+  const accBySede = new Map();
+  rawMovWeeks.forEach(w => {
+    const sedeName = w.sedeName, c = w.computed || {};
+    const periodKey = periodKeyFor(w.weekStart, granularity);
+    if (!accBySede.has(sedeName)) accBySede.set(sedeName, new Map());
+    const periods = accBySede.get(sedeName);
+    if (!periods.has(periodKey)) periods.set(periodKey, { periodKey, sedeName, disponible: 0, diferenciaKL: 0, weeks: 0, periodStart: w.weekStart, periodEnd: w.weekEnd, byBloque: new Map() });
+    const acc = periods.get(periodKey);
+    acc.disponible += c.totalDisponible || 0;
+    acc.diferenciaKL += c.totalDiferencia || 0;
+    acc.weeks += 1;
+    if (w.weekStart && (!acc.periodStart || w.weekStart < acc.periodStart)) acc.periodStart = w.weekStart;
+    if (w.weekEnd && (!acc.periodEnd || w.weekEnd > acc.periodEnd)) acc.periodEnd = w.weekEnd;
+    (c.byCategory || []).forEach(cat => {
+      if (!acc.byBloque.has(cat.category)) acc.byBloque.set(cat.category, { disponible: 0, diferenciaKL: 0 });
+      const b = acc.byBloque.get(cat.category);
+      b.disponible += cat.disponible || 0;
+      b.diferenciaKL += cat.diferenciaKL || 0;
+    });
+  });
+  const bySede = [], byPeriod = new Map();
+  accBySede.forEach((periods, sedeName) => {
+    const points = Array.from(periods.values()).map(acc => ({
+      periodKey: acc.periodKey,
+      periodLabel: (granularity === 'week' && acc.periodStart && acc.periodEnd) ? weekRangeLabel(acc.periodStart, acc.periodEnd) : periodLabel(acc.periodKey, granularity),
+      sedeName, disponible: acc.disponible, diferenciaKL: acc.diferenciaKL,
+      pctDiferencia: acc.disponible === 0 ? 0 : acc.diferenciaKL / acc.disponible, weeks: acc.weeks,
+      byBloque: Array.from(acc.byBloque.entries()).map(([bloque, v]) => ({ bloque, disponible: v.disponible, diferenciaKL: v.diferenciaKL, pctDiferencia: v.disponible === 0 ? 0 : v.diferenciaKL / v.disponible }))
+    })).sort((a, b) => a.periodKey < b.periodKey ? -1 : 1);
+    bySede.push({ sedeName, points });
+    points.forEach(p => { if (!byPeriod.has(p.periodKey)) byPeriod.set(p.periodKey, []); byPeriod.get(p.periodKey).push(p); });
+  });
+  const periodKeysSorted = Array.from(byPeriod.keys()).sort();
+  return { granularity, bySede, byPeriod: Array.from(byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })), periodKeysSorted, sedeNames: bySede.map(s => s.sedeName).sort() };
+}
 `;
 
 const VIEWER_JS = `
 function fmtCOP(v){ if(v==null||isNaN(v)) return '$0'; return '$' + Math.round(v).toLocaleString('es-CO'); }
 function fmtPct(v){ return (Math.round(v*1000)/10).toFixed(1)+'%'; }
+function fmtNum(v){ if(v==null||isNaN(v)) return '0'; const r = Math.round(v*100)/100; return Number.isInteger(r) ? String(r) : r.toFixed(2); }
 function el(id){ return document.getElementById(id); }
 
 const METRIC_LABELS = { margenPct: 'Margen %', utilidadBruta: 'Utilidad Bruta', venta: 'Ventas' };
@@ -348,6 +417,7 @@ let activeView = 'tiempo';
 let charts = {};
 let currentData = null;
 let currentVentaData = null;
+let currentMovData = null;
 function destroyChart(id){ if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
 // "Ventas" tiene su PROPIO calendario (ventas_dias, día a día) — el resto de
 // métricas viene de balance_weeks. Estas 2 funciones son el único lugar que
@@ -375,6 +445,7 @@ function recomputeData(){
   const granularity = el('filterGranularidad').value;
   currentData = aggregateByPeriod(RAW_WEEKS, granularity);
   currentVentaData = aggregateVentasByPeriod(RAW_VENTAS, granularity);
+  currentMovData = aggregateMovByPeriod(RAW_MOV_WEEKS, granularity);
   selectedPeriods = null;
   renderPeriodPopover();
 }
@@ -423,6 +494,7 @@ function initFilters(){
     refreshActiveView();
   });
   sedeSel.addEventListener('change', () => { renderKpis(); refreshActiveView(); });
+  el('filterBloque').addEventListener('change', refreshActiveView);
   el('filterGranularidad').addEventListener('change', () => {
     recomputeData();
     refreshSedeOptions();
@@ -450,8 +522,13 @@ function refreshSedeOptions(){
   const sedeSel = el('filterSede');
   const prev = sedeSel.value;
   const data = activeSource();
-  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + data.sedeNames.map(s => '<option value="' + s + '">' + s + '</option>').join('');
-  if (data.sedeNames.includes(prev)) sedeSel.value = prev;
+  const allSedes = Array.from(new Set([...data.sedeNames, ...currentMovData.sedeNames])).sort();
+  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + allSedes.map(s => '<option value="' + s + '">' + s + '</option>').join('');
+  if (allSedes.includes(prev)) sedeSel.value = prev;
+  const bloqueSel = el('filterBloque');
+  if (bloqueSel.options.length <= 1) {
+    bloqueSel.innerHTML = '<option value="">Todos los bloques</option>' + BLOQUES_CANONICOS.map(b => '<option>' + b + '</option>').join('');
+  }
 }
 
 function currentAccent(){ return getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#3ea8ff'; }
@@ -655,10 +732,114 @@ function viewPresupuesto(){
   }).join('') : '<tr><td colspan="5" class="left">Sin ventas del mes en curso todavía.</td></tr>';
 }
 
+// "Mermas": a diferencia de las otras 3 vistas, ignora
+// métrica/granularidad-de-Balance/fechas — usa su PROPIO histórico
+// (RAW_MOV_WEEKS) con la granularidad ya elegida en "filterGranularidad" y
+// solo respeta el filtro de sede, más su propio selector de Bloque.
+function movMetricFor(bloqueFilter, point){
+  if (!bloqueFilter) return { disponible: point.disponible, diferenciaKL: point.diferenciaKL, pctDiferencia: point.pctDiferencia };
+  const b = (point.byBloque || []).find(x => x.bloque === bloqueFilter);
+  return b ? { disponible: b.disponible, diferenciaKL: b.diferenciaKL, pctDiferencia: b.pctDiferencia } : { disponible: 0, diferenciaKL: 0, pctDiferencia: 0 };
+}
+function viewMermas(){
+  destroyChart('mermasTiempo'); destroyChart('mermasSedes'); destroyChart('mermasBloques');
+  if (!currentMovData.sedeNames.length) return;
+  const sedeFilter = el('filterSede').value;
+  const bloqueFilter = el('filterBloque').value;
+  const bloqueLabel = bloqueFilter ? ' — ' + bloqueFilter : '';
+  const data = currentMovData;
+  const palette = SEDE_PALETTE;
+
+  const allPoints = Array.from(data.bySede.flatMap(s => s.points)).filter(p => !sedeFilter || p.sedeName === sedeFilter);
+  const lastPeriod = data.periodKeysSorted[data.periodKeysSorted.length - 1];
+  const lastMetrics = allPoints.filter(p => p.periodKey === lastPeriod).map(p => movMetricFor(bloqueFilter, p));
+  const lastDisp = lastMetrics.reduce((a, m) => a + m.disponible, 0);
+  const lastDif = lastMetrics.reduce((a, m) => a + m.diferenciaKL, 0);
+  const lastPct = lastDisp === 0 ? 0 : lastDif / lastDisp;
+  el('mermasKpiGrid').innerHTML =
+    '<div class="kpi-card"><div class="kpi-label">Sedes con historial</div><div class="kpi-value">' + data.sedeNames.length + '</div></div>' +
+    '<div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">' + RAW_MOV_WEEKS.length + '</div></div>' +
+    '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Diferencia KL — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtNum(lastDif) + '</div></div>' +
+    '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">% Diferencia — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtPct(lastPct) + '</div></div>';
+
+  const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
+  const labels = data.periodKeysSorted.map(k => (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
+  const tiempoDatasets = series.map((s, i) => {
+    const byPeriod = new Map(s.points.map(p => [p.periodKey, movMetricFor(bloqueFilter, p).diferenciaKL]));
+    return { label: s.sedeName, data: data.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
+  });
+  const tiempoOpts = chartOptions('Diferencia KL' + bloqueLabel + ' en el tiempo', null, fmtNum);
+  tiempoOpts.plugins.legend.display = series.length > 1;
+  charts.mermasTiempo = new Chart(el('chartMermasTiempo').getContext('2d'), { type: 'line', data: { labels, datasets: tiempoDatasets }, options: tiempoOpts });
+
+  const diffBySede = series.map(s => [s.sedeName, s.points.reduce((a, p) => a + movMetricFor(bloqueFilter, p).diferenciaKL, 0)]);
+  const sedeLabels = diffBySede.map(p => p[0]), sedeValues = diffBySede.map(p => p[1]);
+  charts.mermasSedes = new Chart(el('chartMermasSedes').getContext('2d'), {
+    type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues, backgroundColor: sedeLabels.map((s, i) => palette[i % palette.length]), borderRadius: 6 }] },
+    options: chartOptions('Diferencia KL' + bloqueLabel + ' acumulada por sede', null, fmtNum)
+  });
+
+  // Ranking de los 12 bloques (alcance actual: sede + todo el periodo visible).
+  const bloqueAcc = new Map();
+  allPoints.forEach(p => (p.byBloque || []).forEach(b => {
+    if (!bloqueAcc.has(b.bloque)) bloqueAcc.set(b.bloque, 0);
+    bloqueAcc.set(b.bloque, bloqueAcc.get(b.bloque) + b.diferenciaKL);
+  }));
+  const pairs = BLOQUES_CANONICOS.map(b => [b, bloqueAcc.get(b) || 0]).sort((a, b) => a[1] - b[1]);
+  const bloqueLabels = pairs.map(p => p[0]), bloqueValues = pairs.map(p => p[1]);
+  const bloquesOpts = Object.assign(chartOptions('Diferencia KL por bloque' + (sedeFilter ? ' — ' + sedeFilter : ' — todas las sedes')), {
+    indexAxis: 'y',
+    onClick: (evt, elements) => { if (elements.length) renderMermasDrilldown(bloqueLabels[elements[0].index], sedeFilter); }
+  });
+  charts.mermasBloques = new Chart(el('chartMermasBloques').getContext('2d'), {
+    type: 'bar', data: { labels: bloqueLabels, datasets: [{ data: bloqueValues, backgroundColor: bloqueValues.map(v => colorFor(v)), borderRadius: 6 }] }, options: bloquesOpts
+  });
+  el('mermasDrillHint').classList.toggle('hidden-block', !!sedeFilter);
+
+  // Detalle por periodo
+  let rows = Array.from(data.bySede.flatMap(s => s.points));
+  if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
+  rows = rows.slice().sort((a, b) => a.periodKey < b.periodKey ? 1 : -1);
+  el('mermasTableBody').innerHTML = rows.map(r => {
+    const m = movMetricFor(bloqueFilter, r);
+    const cls = m.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(m.diferenciaKL) < 0.01 ? 'diff-zero' : '');
+    return '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtNum(m.disponible) + '</td><td class="' + cls + '">' + fmtNum(m.diferenciaKL) + '</td><td>' + fmtPct(m.pctDiferencia) + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="left">Sin datos para este filtro.</td></tr>';
+}
+
+// Detalle de productos de un bloque, de la semana más reciente guardada de
+// esa sede — mismo criterio que el dashboard en pantalla.
+function renderMermasDrilldown(bloque, sedeFilter){
+  const wrap = el('mermasDrillTable');
+  wrap.classList.remove('hidden-block');
+  if (!sedeFilter) {
+    el('mermasDrillTitle').textContent = 'Elige una sede específica (no "todas las sedes") para ver el detalle de productos de este bloque.';
+    el('mermasDrillTableBody').innerHTML = '';
+    return;
+  }
+  const weeksSede = RAW_MOV_WEEKS.filter(w => w.sedeName === sedeFilter).slice().sort((a, b) => String(a.weekStart) < String(b.weekStart) ? 1 : -1);
+  const latest = weeksSede[0];
+  const rows = latest && latest.computed && latest.computed.allProductRows;
+  if (!latest || !rows) {
+    el('mermasDrillTitle').textContent = 'Sin detalle de productos guardado para ' + sedeFilter + ' todavía.';
+    el('mermasDrillTableBody').innerHTML = '';
+    return;
+  }
+  const productos = rows.filter(p => p.category === bloque).sort((a, b) => a.diferenciaKL - b.diferenciaKL);
+  const weekLabel = String(latest.weekStart).slice(0, 10) + (latest.weekEnd ? ' → ' + String(latest.weekEnd).slice(0, 10) : '');
+  el('mermasDrillTitle').textContent = 'Detalle de productos — ' + bloque + ' en ' + sedeFilter + ', semana ' + weekLabel;
+  el('mermasDrillTableBody').innerHTML = productos.map(p => {
+    const cls = p.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(p.diferenciaKL) < 0.01 ? 'diff-zero' : '');
+    const pct = p.disponible === 0 ? 0 : p.diferenciaKL / p.disponible;
+    return '<tr><td class="left code">' + p.code + '</td><td class="left">' + p.name + '</td><td>' + fmtNum(p.disponible) + '</td><td class="' + cls + '">' + fmtNum(p.diferenciaKL) + '</td><td>' + fmtPct(pct) + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="left">Sin productos con diferencia en este bloque esa semana.</td></tr>';
+}
+
 function refreshActiveView(){
   if (activeView === 'tiempo') viewTiempo();
   else if (activeView === 'sedes') viewSedes();
   else if (activeView === 'presupuesto') viewPresupuesto();
+  else if (activeView === 'mermas') viewMermas();
 }
 
 recomputeData();
