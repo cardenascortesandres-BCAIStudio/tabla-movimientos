@@ -26,11 +26,32 @@ const SEDES = [
   { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/DECEPAZ/SEPTIEMBRE/31-06 SEPTIEMBRE', file: 'Balance 31-06 SEPTIEMBRE DECEPAZ.xlsx', sedeName: 'Decepaz' },
   { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/NARANJOS/SEPTIEMBRE/01-06 SEPTIEMBRE', file: 'Balace 31-06 SEPTIEMBRE -2026 NARANJOS.xlsx', sedeName: 'Los Naranjos' },
   { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/PLANTA POLLO/AGOSTO/03-09 AGOSTO', file: 'BALANCE 03-09 AGOSTO-PLANTA POLLO.xlsx', sedeName: 'Planta Pollo' },
-  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/VILLA DEL LAGO/SEPTIEMBRE', file: 'BALANCE 31-06 SEPTIEMBRE AGOSTO  2026  VILLA DEL LAGO.xlsx', sedeName: 'Villa del Lago' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/VILLA DEL LAGO/SEPTIEMBRE/31-06 SEPTIEMBRE', file: 'BALANCE 31-06 SEPTIEMBRE AGOSTO  2026  VILLA DEL LAGO.xlsx', sedeName: 'Villa del Lago' },
   { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/CHIMINANGOS/SEPTIEMBRE/01-06 SEPTEIMBRE', file: 'BALANCE 31-06 SEPTIEMBRE CHIMI.xlsx', sedeName: 'Chiminangos' },
   { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/ALAMEDA/SEPTIEBRE/01-06 SEPTIEMBRE', file: 'BALANCE 31-06 SEPTIEMBRE 2026 ALAMEDA-.xlsx', sedeName: 'Alameda' },
   { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/CASONA/SEPTIEMBRE/31-06 SEPTIEMBRE', file: 'BALANCE 31-06 SEPTIEMBREP 2026 - CASONA.xlsx', sedeName: 'Casona' },
-  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/JAMUNDI/SEPTIEMBRE', file: 'BALANCE 01-06 septiembre 2026 JAMUNDI.xlsx', sedeName: 'Jamundí' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/JAMUNDI/SEPTIEMBRE/01-6 SEPTIEMBRE', file: 'BALANCE 01-06 septiembre 2026 JAMUNDI.xlsx', sedeName: 'Jamundí' },
+
+  // 2026-09-23: semanas 07-13 y 14-20 de septiembre, recién completadas por
+  // cada sede (Balance solo tenía datos hasta el 31 de agosto) — 07-13 vive
+  // en la carpeta propia de cada sede (archivo nuevo, una sola semana), y
+  // 14-20 ya está consolidada en BRANGUS/INVENTARIOS/BALANCES/ (carpeta
+  // compartida que el usuario actualiza semana a semana).
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/ALAMEDA/SEPTIEBRE/07-13 SEPTIEMBRE', file: 'BALANCE 07-13 SEPTIEMBRE 2026 ALAMEDA-.xlsx', sedeName: 'Alameda' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/CASONA/SEPTIEMBRE/07-13 SEPTIEMBRE', file: 'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx', sedeName: 'Casona' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/CHIMINANGOS/SEPTIEMBRE/07-13 SEPTIEMBRE', file: 'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx', sedeName: 'Chiminangos' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/DECEPAZ/SEPTIEMBRE/07-13 SEPTRIEMBRE', file: 'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx', sedeName: 'Decepaz' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/JAMUNDI/SEPTIEMBRE/07-13 SEPTIEMBRE', file: 'BALANCE 07-13 septiembre 2026 JAMUNDI.xlsx', sedeName: 'Jamundí' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/VILLA DEL LAGO/SEPTIEMBRE/07-13 SEPTIEMBRE', file: 'BALANCE 07-13 SEPTIEMBRE AGOSTO 2026  VILLA DEL LAGO.xlsx', sedeName: 'Villa del Lago' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/NARANJOS/SEPTIEMBRE/07-13 SEPTIEMBRE', file: 'Balace 07-13 SEPTIEMBRE -2026 NARANJOS.xlsx', sedeName: 'Los Naranjos' },
+
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/BALANCES', file: 'BALANCE 14-20 SEPTIEMBRE 2026 ALAMEDA.xlsx', sedeName: 'Alameda' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/BALANCES', file: 'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx', sedeName: 'Casona' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/BALANCES', file: 'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx', sedeName: 'Chiminangos' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/BALANCES', file: 'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx', sedeName: 'Decepaz' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/BALANCES', file: 'BALANCE 14-20 septiembre 2026 JAMUNDI.xlsx', sedeName: 'Jamundí' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/BALANCES', file: 'BALANCE 14-20 SEPTIEMBRE AGOSTO 2026  VILLA DEL LAGO.xlsx', sedeName: 'Villa del Lago' },
+  { dir: 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/INVENTARIOS/BALANCES', file: 'Balace 14-20 SEPTIEMBRE -2026 NARANJOS.xlsx', sedeName: 'Los Naranjos' },
 ];
 
 const MAX_ROW = 45;
@@ -97,6 +118,47 @@ const EXCLUDE_SHEETS = new Set([
   'BALANCE 31-06 SEPTIEMBREP 2026 - CASONA.xlsx::10-16 FEB 2025 (11)',
   // Jamundí: duplicado EXACTO (mismo invInicial/invFinal/totalVentas).
   'BALANCE 01-06 septiembre 2026 JAMUNDI.xlsx::12-18 AGOSTO -24 (12)',
+
+  // --- Nuevo 2026-09-23: semanas 07-13 y 14-20 de septiembre ---
+  // Los archivos de cada sede son la MISMA historia completa re-guardada con
+  // 1-2 pestañas nuevas al final; las hojas problematicas de mas arriba
+  // siguen ahi pero con un nombre de archivo distinto, asi que las claves de
+  // EXCLUDE_SHEETS/MANUAL_WEEKS (que incluyen el nombre de archivo) hay que
+  // repetirlas para cada archivo nuevo o vuelven a aparecer como "fecha NO
+  // parseada" (y arriesgan una fila sinfecha-* duplicada de una semana que
+  // ya esta bien importada).
+  //
+  // Alameda: mismos 2 casos que en el archivo original de mas arriba.
+  'BALANCE 07-13 SEPTIEMBRE 2026 ALAMEDA-.xlsx::Balance 29-12  MAYO-24 (18)',
+  'BALANCE 14-20 SEPTIEMBRE 2026 ALAMEDA.xlsx::Balance 29-12  MAYO-24 (18)',
+  'BALANCE 07-13 SEPTIEMBRE 2026 ALAMEDA-.xlsx::Balance 27-03 MAYO  2026  (59)',
+  'BALANCE 14-20 SEPTIEMBRE 2026 ALAMEDA.xlsx::Balance 27-03 MAYO  2026  (59)',
+  // Villa del Lago: mismo caso del rango de 14 dias.
+  'BALANCE 07-13 SEPTIEMBRE AGOSTO 2026  VILLA DEL LAGO.xlsx::Balance 29-12  MAYO-24 (18)',
+  'BALANCE 14-20 SEPTIEMBRE AGOSTO 2026  VILLA DEL LAGO.xlsx::Balance 29-12  MAYO-24 (18)',
+  // Los Naranjos: "(54)" duplicado exacto de "(55)" (se conserva "(55)").
+  'Balace 07-13 SEPTIEMBRE -2026 NARANJOS.xlsx::Balance 05-11  ENER -2026 (54)',
+  'Balace 14-20 SEPTIEMBRE -2026 NARANJOS.xlsx::Balance 05-11  ENER -2026 (54)',
+  // Chiminangos: 2 hojas identicas "23-01 MARZO 2026" (se conserva "(77)").
+  'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx::23-01 MARZO 2026  (76)',
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::23-01 MARZO 2026  (76)',
+  // Casona: mismas 2 hojas realmente vacias que en el archivo original.
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::18-24  MAYO   -2026 (19)',
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::18-24  MAYO   -2026 (19)',
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::10-16 FEB 2025 (11)',
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::10-16 FEB 2025 (11)',
+  // Decepaz: mismas 5 hojas del archivo original (3 vacias + 2 que colisionan
+  // en la misma fecha sin forma confiable de distinguirlas).
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance 15-21  2025 (46)',
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance 15-21  2025 (46)',
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance  12-18 MAYO  2025 (17)',
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance  12-18 MAYO  2025 (17)',
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance 28 ENE-24 (4)',
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance 28 ENE-24 (4)',
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance 23-01 FEB-2026 (56)',
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance 23-01 FEB-2026 (56)',
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance 26-01 FEB-2026 (52)',
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance 26-01 FEB-2026 (52)',
 ]);
 
 // Semanas donde el nombre de hoja/texto de periodo no basta para fechar la
@@ -177,6 +239,94 @@ const MANUAL_WEEKS = {
   'BALANCE 31-06 SEPTIEMBREP 2026 - CASONA.xlsx::15 SEPT-24-24 (20)': { weekStart: '2024-09-09', weekEnd: '2024-09-15' },
   'BALANCE 31-06 SEPTIEMBREP 2026 - CASONA.xlsx::08 SEPT-24-24 (19)': { weekStart: '2024-09-02', weekEnd: '2024-09-08' },
   'BALANCE 31-06 SEPTIEMBREP 2026 - CASONA.xlsx::01 SEPT-24-24 (18)': { weekStart: '2024-08-26', weekEnd: '2024-09-01' },
+
+  // --- Nuevo 2026-09-23: semanas 07-13 y 14-20 de septiembre ---
+  // Mismo motivo que en EXCLUDE_SHEETS arriba: hay que repetir, con el
+  // nombre de archivo nuevo, las correcciones manuales que ya existian mas
+  // arriba para estas mismas hojas historicas, ademas de las semanas
+  // genuinamente nuevas de septiembre.
+  //
+  // Alameda.
+  'BALANCE 07-13 SEPTIEMBRE 2026 ALAMEDA-.xlsx::Balance 04-10  MAYO  (60)': { weekStart: '2026-05-04', weekEnd: '2026-05-10' },
+  'BALANCE 14-20 SEPTIEMBRE 2026 ALAMEDA.xlsx::Balance 04-10  MAYO  (60)': { weekStart: '2026-05-04', weekEnd: '2026-05-10' },
+  'BALANCE 07-13 SEPTIEMBRE 2026 ALAMEDA-.xlsx::Balance 09-15 DIC  24  (5)': { weekStart: '2024-12-16', weekEnd: '2024-12-22' },
+  'BALANCE 14-20 SEPTIEMBRE 2026 ALAMEDA.xlsx::Balance 09-15 DIC  24  (5)': { weekStart: '2024-12-16', weekEnd: '2024-12-22' },
+  'BALANCE 07-13 SEPTIEMBRE 2026 ALAMEDA-.xlsx::Balance 27-03 MAYO  (59)': { weekStart: '2026-04-27', weekEnd: '2026-05-03' },
+  'BALANCE 14-20 SEPTIEMBRE 2026 ALAMEDA.xlsx::Balance 27-03 MAYO  (59)': { weekStart: '2026-04-27', weekEnd: '2026-05-03' },
+
+  // Los Naranjos: "(85)"/"(86)" comparten nombre de hoja pero son 2 semanas
+  // reales distintas (mismo criterio que el archivo original de agosto).
+  'Balace 07-13 SEPTIEMBRE -2026 NARANJOS.xlsx::Balance 09 agosto -2026 (85)': { weekStart: '2026-08-03', weekEnd: '2026-08-09' },
+  'Balace 14-20 SEPTIEMBRE -2026 NARANJOS.xlsx::Balance 09 agosto -2026 (85)': { weekStart: '2026-08-03', weekEnd: '2026-08-09' },
+  'Balace 07-13 SEPTIEMBRE -2026 NARANJOS.xlsx::Balance 09 agosto -2026 (86)': { weekStart: '2026-08-10', weekEnd: '2026-08-16' },
+  'Balace 14-20 SEPTIEMBRE -2026 NARANJOS.xlsx::Balance 09 agosto -2026 (86)': { weekStart: '2026-08-10', weekEnd: '2026-08-16' },
+
+  // Decepaz: 2 hojas ya resueltas en el archivo original + la hoja "enero
+  // 30-05" (el mes va ANTES del rango de dias, rompe el parseo automatico).
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance 22-28  2025 (47)': { weekStart: '2025-12-22', weekEnd: '2025-12-28' },
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance 22-28  2025 (47)': { weekStart: '2025-12-22', weekEnd: '2025-12-28' },
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance 08-14  2025 (45)': { weekStart: '2025-12-08', weekEnd: '2025-12-14' },
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance 08-14  2025 (45)': { weekStart: '2025-12-08', weekEnd: '2025-12-14' },
+  'Balance 07-13 SEPTIEMBRE DECEPAZ.xlsx::Balance  enero 30-05 ener-25': { weekStart: '2024-12-30', weekEnd: '2025-01-05' },
+  'Balance 14-20 SEPTIEMBRE DECEPAZ.xlsx::Balance  enero 30-05 ener-25': { weekStart: '2024-12-30', weekEnd: '2025-01-05' },
+
+  // Casona: la semana nueva "Balance 07-13" no trae año en el nombre; "Balance
+  // 14-20 Septiembre" solo aparece en el archivo de esa semana. El resto son
+  // hojas historicas ya resueltas en el archivo original (mismo criterio).
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::Balance 07-13': { weekStart: '2026-09-07', weekEnd: '2026-09-13' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::Balance 07-13': { weekStart: '2026-09-07', weekEnd: '2026-09-13' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::Balance 14-20 Septiembre': { weekStart: '2026-09-14', weekEnd: '2026-09-20' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::31-06 SEPTIEMBRE': { weekStart: '2026-08-31', weekEnd: '2026-09-06' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::31-06 SEPTIEMBRE': { weekStart: '2026-08-31', weekEnd: '2026-09-06' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::14-20  abril (18)': { weekStart: '2025-04-14', weekEnd: '2025-04-20' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::14-20  abril (18)': { weekStart: '2025-04-14', weekEnd: '2025-04-20' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::07-13  abril (17)': { weekStart: '2025-04-07', weekEnd: '2025-04-13' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::07-13  abril (17)': { weekStart: '2025-04-07', weekEnd: '2025-04-13' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::27- OCTUBRE-24-24 (26)': { weekStart: '2024-10-21', weekEnd: '2024-10-27' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::27- OCTUBRE-24-24 (26)': { weekStart: '2024-10-21', weekEnd: '2024-10-27' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::20- OCTUBRE-24-24 (25)': { weekStart: '2024-10-14', weekEnd: '2024-10-20' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::20- OCTUBRE-24-24 (25)': { weekStart: '2024-10-14', weekEnd: '2024-10-20' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::13- OCTUBRE-24-24 (24)': { weekStart: '2024-10-07', weekEnd: '2024-10-13' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::13- OCTUBRE-24-24 (24)': { weekStart: '2024-10-07', weekEnd: '2024-10-13' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::06- OCTUBRE-24-24 (23)': { weekStart: '2024-09-30', weekEnd: '2024-10-06' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::06- OCTUBRE-24-24 (23)': { weekStart: '2024-09-30', weekEnd: '2024-10-06' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::29 SEPT-24-24 (22)': { weekStart: '2024-09-23', weekEnd: '2024-09-29' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::29 SEPT-24-24 (22)': { weekStart: '2024-09-23', weekEnd: '2024-09-29' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::22 SEPT-24-24 (21)': { weekStart: '2024-09-16', weekEnd: '2024-09-22' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::22 SEPT-24-24 (21)': { weekStart: '2024-09-16', weekEnd: '2024-09-22' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::15 SEPT-24-24 (20)': { weekStart: '2024-09-09', weekEnd: '2024-09-15' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::15 SEPT-24-24 (20)': { weekStart: '2024-09-09', weekEnd: '2024-09-15' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::08 SEPT-24-24 (19)': { weekStart: '2024-09-02', weekEnd: '2024-09-08' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::08 SEPT-24-24 (19)': { weekStart: '2024-09-02', weekEnd: '2024-09-08' },
+  'BALANCE 07-13 SEPTIEMBREP 2026 - CASONA.xlsx::01 SEPT-24-24 (18)': { weekStart: '2024-08-26', weekEnd: '2024-09-01' },
+  'BALANCE 14-20 SEPTIEMBREP 2026 - CASONA.xlsx::01 SEPT-24-24 (18)': { weekStart: '2024-08-26', weekEnd: '2024-09-01' },
+
+  // Chiminangos: la semana nueva viene con nombre de hoja distinto en cada
+  // archivo ("07-13 SEPTIEMBRE" en el archivo 07-13, "Balance 07-13
+  // Septiembre" en el archivo 14-20). "24-30 Agosto"/"17-23 Agosto" (sin
+  // año, solo en el archivo 14-20) son semanas de agosto que ya existen en
+  // produccion con otro nombre de hoja (10-16 AGOSTO 2026 (2)/(3)).
+  'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx::07-13 SEPTIEMBRE': { weekStart: '2026-09-07', weekEnd: '2026-09-13' },
+  // Este archivo todavia trae "(2)"/"(3)" con el nombre viejo (sin renombrar
+  // a "Agosto" como en el archivo 14-20) — mismo mapeo que el archivo original.
+  'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx::10-16 AGOSTO 2026 (2)': { weekStart: '2026-08-17', weekEnd: '2026-08-23' },
+  'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx::10-16 AGOSTO 2026 (3)': { weekStart: '2026-08-24', weekEnd: '2026-08-30' },
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::Balance 07-13 Septiembre': { weekStart: '2026-09-07', weekEnd: '2026-09-13' },
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::Balance 14-20 SEPTIEMBRE': { weekStart: '2026-09-14', weekEnd: '2026-09-20' },
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::Balance 24-30 Agosto': { weekStart: '2026-08-24', weekEnd: '2026-08-30' },
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::Balance 17-23 Agosto': { weekStart: '2026-08-17', weekEnd: '2026-08-23' },
+  'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx::16-22  JUNIO  (42)': { weekStart: '2025-06-16', weekEnd: '2025-06-22' },
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::16-22  JUNIO  (42)': { weekStart: '2025-06-16', weekEnd: '2025-06-22' },
+  'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx::09-15  JUNIO  (41)': { weekStart: '2025-06-09', weekEnd: '2025-06-15' },
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::09-15  JUNIO  (41)': { weekStart: '2025-06-09', weekEnd: '2025-06-15' },
+  'BALANCE 07-13 SEPTIEMBRE CHIMI.xlsx::02-08  JUNIO  (40)': { weekStart: '2025-06-02', weekEnd: '2025-06-08' },
+  'BALANCE 14-20 SEPTIEMBRE CHIMINANGOS.xlsx::02-08  JUNIO  (40)': { weekStart: '2025-06-02', weekEnd: '2025-06-08' },
+
+  // Jamundí: la semana "07-13 Septiembre" aparece (con el mismo nombre de
+  // hoja) tanto en el archivo 07-13 como en el 14-20.
+  'BALANCE 07-13 septiembre 2026 JAMUNDI.xlsx::Balance 07-13 Septiembre': { weekStart: '2026-09-07', weekEnd: '2026-09-13' },
+  'BALANCE 14-20 septiembre 2026 JAMUNDI.xlsx::Balance 07-13 Septiembre': { weekStart: '2026-09-07', weekEnd: '2026-09-13' },
+  'BALANCE 14-20 septiembre 2026 JAMUNDI.xlsx::Balance 14-20 Septiembre': { weekStart: '2026-09-14', weekEnd: '2026-09-20' },
 };
 
 // ---- mismas reglas que server/slug.js + src/core/normalize.js (duplicadas

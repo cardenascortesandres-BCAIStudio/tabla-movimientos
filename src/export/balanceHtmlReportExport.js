@@ -121,21 +121,32 @@ ${VIEWER_CSS}
   </section>
   <section class="view-panel hidden-block" id="view-mermas">
     <div class="kpi-grid" id="mermasKpiGrid" style="margin-bottom:16px"></div>
-    <div class="chart-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-      <div class="chart-box"><canvas id="chartMermasTiempo"></canvas></div>
-      <div class="chart-box"><canvas id="chartMermasSedes"></canvas></div>
+
+    <nav class="view-tabs" id="mermasSubTabs" style="margin-bottom:14px;">
+      <button class="view-tab active mermas-sub-tab" data-mermas-view="tiempo">📈 Serie de tiempo</button>
+      <button class="view-tab mermas-sub-tab" data-mermas-view="sedes">🏢 Comparativa entre sedes</button>
+      <button class="view-tab mermas-sub-tab" data-mermas-view="bloques">📋 Diferencia por bloque</button>
+    </nav>
+
+    <div class="mermas-sub-panel" id="mermas-sub-tiempo">
+      <div class="chart-box" style="margin-bottom:16px"><canvas id="chartMermasTiempo"></canvas></div>
     </div>
-    <p class="hint" id="mermasDrillHint">Elige una sede específica arriba y haz clic en una barra para ver el detalle de productos de ese bloque.</p>
-    <div class="chart-box" style="margin-bottom:16px"><canvas id="chartMermasBloques"></canvas></div>
-    <table class="dtable hidden-block" id="mermasDrillTable">
-      <caption id="mermasDrillTitle" style="text-align:left;font-weight:700;margin-bottom:8px;">Detalle de productos</caption>
-      <thead><tr><th class="left">Código</th><th class="left">Producto</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
-      <tbody id="mermasDrillTableBody"></tbody>
-    </table>
-    <table class="dtable" id="mermasTable" style="margin-top:16px;">
-      <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
-      <tbody id="mermasTableBody"></tbody>
-    </table>
+    <div class="mermas-sub-panel hidden-block" id="mermas-sub-sedes">
+      <div class="chart-box" style="margin-bottom:16px"><canvas id="chartMermasSedes"></canvas></div>
+    </div>
+    <div class="mermas-sub-panel hidden-block" id="mermas-sub-bloques">
+      <p class="hint" id="mermasDrillHint">Elige una sede específica arriba y haz clic en una barra para ver el detalle de productos de ese bloque.</p>
+      <div class="chart-box" style="margin-bottom:16px"><canvas id="chartMermasBloques"></canvas></div>
+      <table class="dtable hidden-block" id="mermasDrillTable">
+        <caption id="mermasDrillTitle" style="text-align:left;font-weight:700;margin-bottom:8px;">Detalle de productos</caption>
+        <thead><tr><th class="left">Código</th><th class="left">Producto</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+        <tbody id="mermasDrillTableBody"></tbody>
+      </table>
+      <table class="dtable" id="mermasTable" style="margin-top:16px;">
+        <thead><tr><th class="left">Sede</th><th class="left">Periodo</th><th>Disponible</th><th>Diferencia KL</th><th>% Diferencia</th></tr></thead>
+        <tbody id="mermasTableBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <p class="hint">Informe autocontenido — se puede abrir sin conexión a internet ni instalar nada. Los datos mostrados son un corte fijo del momento de la exportación.</p>
@@ -435,6 +446,22 @@ function initTabs(){
       el('view-' + v).classList.remove('hidden-block');
       activeView = v;
       refreshActiveView();
+    });
+  });
+}
+
+// Sub-pestañas dentro de "Mermas" (mismo criterio que el dashboard en
+// pantalla): tiempo / sedes / bloques (bloques incluye el drilldown de
+// productos y "Detalle por periodo"). Los 3 gráficos se siguen creando en
+// cada refreshActiveView — solo se oculta/muestra el panel.
+function initMermasSubTabs(){
+  document.querySelectorAll('.mermas-sub-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mermas-sub-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const v = btn.dataset.mermasView;
+      document.querySelectorAll('.mermas-sub-panel').forEach(p => p.classList.add('hidden-block'));
+      el('mermas-sub-' + v).classList.remove('hidden-block');
     });
   });
 }
@@ -774,20 +801,29 @@ function viewMermas(){
 
   const diffBySede = series.map(s => [s.sedeName, s.points.reduce((a, p) => a + movMetricFor(bloqueFilter, p).diferenciaKL, 0)]);
   const sedeLabels = diffBySede.map(p => p[0]), sedeValues = diffBySede.map(p => p[1]);
+  // Todas las barras crecen hacia arriba (magnitud); el signo se distingue
+  // por color (colorFor: rojo = faltante) en vez de la dirección de la
+  // barra, y el tooltip muestra el valor real con signo — mismo criterio
+  // que el dashboard en pantalla.
+  const sedesOpts = chartOptions('Diferencia KL' + bloqueLabel + ' acumulada por sede');
+  sedesOpts.plugins.tooltip = { callbacks: { label: (ctx) => fmtNum(sedeValues[ctx.dataIndex]) } };
   charts.mermasSedes = new Chart(el('chartMermasSedes').getContext('2d'), {
-    type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues, backgroundColor: sedeLabels.map((s, i) => palette[i % palette.length]), borderRadius: 6 }] },
-    options: chartOptions('Diferencia KL' + bloqueLabel + ' acumulada por sede', null, fmtNum)
+    type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues.map(v => Math.abs(v)), backgroundColor: sedeValues.map(v => colorFor(v)), borderRadius: 6 }] },
+    options: sedesOpts
   });
 
-  // Ranking de los 12 bloques (alcance actual: sede + todo el periodo visible).
+  // Ranking de los 12 bloques del ÚLTIMO periodo (antes sumaba todo el
+  // historial cargado, lo que hacía que el tooltip de una barra no
+  // coincidiera con la fila de esa semana en "Detalle por periodo" — mismo
+  // alcance "último periodo" que ya usan los KPI de arriba).
   const bloqueAcc = new Map();
-  allPoints.forEach(p => (p.byBloque || []).forEach(b => {
+  allPoints.filter(p => p.periodKey === lastPeriod).forEach(p => (p.byBloque || []).forEach(b => {
     if (!bloqueAcc.has(b.bloque)) bloqueAcc.set(b.bloque, 0);
     bloqueAcc.set(b.bloque, bloqueAcc.get(b.bloque) + b.diferenciaKL);
   }));
   const pairs = BLOQUES_CANONICOS.map(b => [b, bloqueAcc.get(b) || 0]).sort((a, b) => a[1] - b[1]);
   const bloqueLabels = pairs.map(p => p[0]), bloqueValues = pairs.map(p => p[1]);
-  const bloquesOpts = Object.assign(chartOptions('Diferencia KL por bloque' + (sedeFilter ? ' — ' + sedeFilter : ' — todas las sedes')), {
+  const bloquesOpts = Object.assign(chartOptions('Diferencia KL por bloque — último ' + GRAN_LABELS[data.granularity] + (sedeFilter ? ' — ' + sedeFilter : ' — todas las sedes')), {
     indexAxis: 'y',
     onClick: (evt, elements) => { if (elements.length) renderMermasDrilldown(bloqueLabels[elements[0].index], sedeFilter); }
   });
@@ -846,6 +882,7 @@ recomputeData();
 refreshSedeOptions();
 initTheme();
 initTabs();
+initMermasSubTabs();
 initFilters();
 renderKpis();
 refreshActiveView();

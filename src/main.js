@@ -426,6 +426,11 @@ function renderTopProductsTable(data, sedeFilter, catFilter) {
 }
 
 // ---------------- Elección inicial: Balance vs Tabla de Movimientos ----------------
+// A dónde volver al salir del flujo de carga de Balance: 'choice' (menú
+// principal, entrada normal) o 'reportes' (se abrió desde el botón "⬆ Cargar
+// Balance" dentro de Reportes, así que el back debe regresar ahí en vez del
+// menú principal).
+let balanceReturnTo = 'choice';
 function switchFlow(flow) {
   app.flow = flow;
   el('modeChoiceCard').classList.toggle('hidden-block', flow !== 'choice');
@@ -730,6 +735,7 @@ async function saveBalanceWeek() {
     });
     banner.className = 'banner info';
     banner.textContent = '✓ Semana guardada en el historial.';
+    reportesWeeks = null; // fuerza recarga la próxima vez que se entre a Reportes
   } catch (err) {
     banner.className = 'banner error';
     banner.textContent = '⚠ No se pudo guardar: ' + err.message;
@@ -900,6 +906,21 @@ function renderReportes() {
     renderReportesTiempoChart(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf);
   }
   if (reportesSubView !== 'presupuesto' && reportesSubView !== 'mermas') renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
+}
+
+// Sub-pestañas DENTRO de "📋 Mermas" (a pedido del usuario, para no mostrar
+// los 3 gráficos + tabla apilados a la vez): tiempo / sedes / bloques
+// (bloques incluye también el drilldown de productos y "Detalle por
+// periodo"). Los 3 gráficos se siguen creando siempre en cada render — solo
+// se oculta/muestra el contenedor — igual que ya hace switchReportesSubView
+// con las sub-vistas de arriba.
+let mermasSubView = 'tiempo';
+function switchMermasSubView(view) {
+  mermasSubView = view;
+  document.querySelectorAll('#reportesMermasSubTabs .tab-btn').forEach(btn => btn.classList.toggle('tab-active', btn.dataset.mermasSubview === view));
+  el('reportesMermasTiempoView').classList.toggle('hidden-block', view !== 'tiempo');
+  el('reportesMermasSedesView').classList.toggle('hidden-block', view !== 'sedes');
+  el('reportesMermasBloquesView').classList.toggle('hidden-block', view !== 'bloques');
 }
 
 function switchReportesSubView(view) {
@@ -1350,7 +1371,7 @@ function renderReportesMermasView(sedeFilter, granularity) {
     <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">% Diferencia — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmtPct(lastPct)}</div></div>`;
 
   renderMermasCharts(data, sedeFilter);
-  renderMermasBloquesChart(data, sedeFilter);
+  renderMermasBloquesChart(data, sedeFilter, lastPeriod, GRAN_LABEL[granularity]);
   renderMermasTable(data, sedeFilter);
 }
 
@@ -1372,22 +1393,33 @@ function renderMermasCharts(data, sedeFilter) {
   if (chartMovSedes) chartMovSedes.destroy();
   const diffBySede = series.map(([sedeName, points]) => [sedeName, points.reduce((a, p) => a + movMetricFor(p).diferenciaKL, 0)]);
   const sedeLabels = diffBySede.map(([s]) => s), sedeValues = diffBySede.map(([, v]) => v);
+  // Todas las barras crecen hacia arriba desde cero (magnitud del faltante/
+  // sobrante) en vez de que las negativas cuelguen hacia abajo del eje — el
+  // usuario lo veía como "barras al revés". El signo se sigue distinguiendo
+  // por color (rojo = faltante) y el tooltip muestra el valor real con signo.
+  const sedesOpts = dashboardChartOptions(metricLabel + ' acumulada por sede', 'reportesView');
+  sedesOpts.plugins.tooltip = { callbacks: { label: (ctx) => fmt(sedeValues[ctx.dataIndex]) } };
   chartMovSedes = new Chart(el('chartReportesMermasSedes').getContext('2d'), {
-    type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues, backgroundColor: chartColors(sedeValues, 'reportesView'), borderRadius: 6 }] },
-    options: dashboardChartOptions(metricLabel + ' acumulada por sede', 'reportesView')
+    type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues.map(v => Math.abs(v)), backgroundColor: chartColors(sedeValues, 'reportesView'), borderRadius: 6 }] },
+    options: sedesOpts
   });
 }
 
 // "Diferencia KL por bloque": ranking de los 12 bloques (Finas/Pulpas/
-// Segundas/...) para el alcance actual (sede + todo el periodo visible) — a
-// pedido explícito del usuario, para comparar los bloques entre sí de un
-// vistazo. Clic en una barra abre el detalle de productos de ese bloque
-// (semana más reciente con datos guardados, ver renderMermasProductDrilldown).
-function renderMermasBloquesChart(data, sedeFilter) {
+// Segundas/...) del ÚLTIMO periodo (semana/mes/año, según la granularidad
+// elegida) — antes sumaba TODO el historial cargado, lo que hacía que el
+// tooltip de una barra no coincidiera con la fila de esa misma semana en
+// "Detalle por periodo" (confundía al usuario: parecían datos distintos).
+// Ahora usa el mismo alcance "último periodo" que ya muestran los KPI de
+// arriba, así el número siempre es el mismo en ambos lados.
+// Clic en una barra abre el detalle de productos de ese bloque (semana más
+// reciente con datos guardados, ver renderMermasProductDrilldown).
+function renderMermasBloquesChart(data, sedeFilter, lastPeriod, granLabel) {
   if (chartMovBloques) chartMovBloques.destroy();
   const points = Array.from(data.bySede.entries())
     .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
-    .flatMap(([, pts]) => pts);
+    .flatMap(([, pts]) => pts)
+    .filter(p => p.periodKey === lastPeriod);
   const acc = new Map();
   points.forEach(p => (p.byBloque || []).forEach(b => {
     if (!acc.has(b.bloque)) acc.set(b.bloque, { disponible: 0, diferenciaKL: 0 });
@@ -1400,7 +1432,7 @@ function renderMermasBloquesChart(data, sedeFilter) {
     .sort((a, b) => a[1] - b[1]); // ascendente: el bloque con mayor faltante primero
   const labels = pairs.map(p => p[0]);
   const values = pairs.map(p => p[1]);
-  const title = 'Diferencia KL por bloque' + (sedeFilter ? ' — ' + sedeFilter : ' — todas las sedes');
+  const title = 'Diferencia KL por bloque — último ' + granLabel + (sedeFilter ? ' — ' + sedeFilter : ' — todas las sedes');
   const opts = Object.assign(dashboardChartOptions(title, 'reportesView'), {
     indexAxis: 'y',
     onClick: (evt, elements) => {
@@ -1969,9 +2001,14 @@ el('filterSede').addEventListener('change', onDashboardFilterChange);
 el('filterCategoria').addEventListener('change', onDashboardFilterChange);
 
 el('modeMovimientosBtn').addEventListener('click', () => switchFlow('movimientos'));
-el('modeBalanceBtn').addEventListener('click', () => switchFlow('balance'));
+el('modeBalanceBtn').addEventListener('click', () => { balanceReturnTo = 'choice'; switchFlow('balance'); });
 el('backFromMovimientosBtn').addEventListener('click', () => switchFlow('choice'));
-el('backFromBalanceBtn').addEventListener('click', () => switchFlow('choice'));
+el('backFromBalanceBtn').addEventListener('click', () => {
+  const to = balanceReturnTo;
+  balanceReturnTo = 'choice';
+  switchFlow(to);
+});
+el('reportesUploadBalanceBtn').addEventListener('click', () => { balanceReturnTo = 'reportes'; switchFlow('balance'); });
 initBalanceDropzones();
 el('balanceSedeInput').addEventListener('change', refreshInvInicialState);
 el('balanceSedeInput').addEventListener('input', updateBalanceGenerateButtonState);
@@ -1991,6 +2028,9 @@ el('reportesSedeFilter').addEventListener('change', renderReportes);
 el('reportesDownloadBtn').addEventListener('click', downloadReportesReport);
 document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => switchReportesSubView(btn.dataset.subview));
+});
+document.querySelectorAll('#reportesMermasSubTabs .tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchMermasSubView(btn.dataset.mermasSubview));
 });
 
 el('reportesTypeBalanceBtn').addEventListener('click', () => switchReportesType('balance'));
