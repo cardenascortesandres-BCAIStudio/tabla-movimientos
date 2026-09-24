@@ -467,7 +467,15 @@ function initMermasSubTabs(){
   });
 }
 
-let selectedPeriods = null; // Set<periodKey> | null (null = todos)
+let selectedPeriods = null; // Set<periodKey> | null (null = todos) — Balance/Ventas
+// Mermas usa su PROPIO calendario de periodos (movimientos_weeks, distinto
+// del de Balance/Ventas) — el botón "📅 Fechas" se reutiliza tal cual, pero
+// necesita su propia selección para no mezclar periodos de una fuente con
+// los de la otra.
+let selectedPeriodsMermas = null;
+function periodSourceData(){ return activeView === 'mermas' ? currentMovData : activeSource(); }
+function activePeriodsGet(){ return activeView === 'mermas' ? selectedPeriodsMermas : selectedPeriods; }
+function activePeriodsSet(v){ if (activeView === 'mermas') selectedPeriodsMermas = v; else selectedPeriods = v; }
 
 function recomputeData(){
   const granularity = el('filterGranularidad').value;
@@ -475,42 +483,48 @@ function recomputeData(){
   currentVentaData = aggregateVentasByPeriod(RAW_VENTAS, granularity);
   currentMovData = aggregateMovByPeriod(RAW_MOV_WEEKS, granularity);
   selectedPeriods = null;
+  selectedPeriodsMermas = null;
   renderPeriodPopover();
 }
 
 // Botón "📅 Fechas" con panel: casillas + "seleccionar todos"/"deseleccionar
 // todos" — mismo patrón que el dashboard en pantalla (Reportes > Balance).
 function renderPeriodPopover(){
-  const data = activeSource();
+  const data = periodSourceData();
   const list = el('periodoList');
   list.innerHTML = data.periodKeysSorted.slice().reverse().map(k => {
     const label = (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k;
-    const checked = !selectedPeriods || selectedPeriods.has(k);
+    const sel = activePeriodsGet();
+    const checked = !sel || sel.has(k);
     return '<label><input type="checkbox" data-period="' + k + '" ' + (checked ? 'checked' : '') + '> ' + escapeHtmlJs(label) + '</label>';
   }).join('');
   list.querySelectorAll('input[type=checkbox]').forEach(cb => {
     cb.addEventListener('change', () => {
-      if (!selectedPeriods) selectedPeriods = new Set(data.periodKeysSorted);
+      let sel = activePeriodsGet();
+      if (!sel) { sel = new Set(data.periodKeysSorted); activePeriodsSet(sel); }
       const k = cb.dataset.period;
-      if (cb.checked) selectedPeriods.add(k);
-      else if (selectedPeriods.size > 1) selectedPeriods.delete(k);
+      if (cb.checked) sel.add(k);
+      else if (sel.size > 1) sel.delete(k);
       else cb.checked = true; // siempre debe quedar al menos 1 periodo
-      if (selectedPeriods.size === data.periodKeysSorted.length) selectedPeriods = null;
-      const n2 = selectedPeriods ? selectedPeriods.size : data.periodKeysSorted.length;
-      el('periodoBtn').textContent = selectedPeriods ? '📅 Fechas (' + n2 + ')' : '📅 Fechas (todas)';
+      if (sel.size === data.periodKeysSorted.length) activePeriodsSet(null);
+      const sel2 = activePeriodsGet();
+      const n2 = sel2 ? sel2.size : data.periodKeysSorted.length;
+      el('periodoBtn').textContent = sel2 ? '📅 Fechas (' + n2 + ')' : '📅 Fechas (todas)';
       el('periodoHint').textContent = (data.granularity === 'week' && n2 === 1 && el('filterMetrica').value === 'venta')
         ? '📅 Semana específica — "Serie de tiempo" muestra el detalle día a día.' : '';
       renderKpis(); refreshActiveView();
     });
   });
-  el('periodoBtn').textContent = selectedPeriods ? '📅 Fechas (' + selectedPeriods.size + ')' : '📅 Fechas (todas)';
-  const n = selectedPeriods ? selectedPeriods.size : data.periodKeysSorted.length;
+  const sel = activePeriodsGet();
+  el('periodoBtn').textContent = sel ? '📅 Fechas (' + sel.size + ')' : '📅 Fechas (todas)';
+  const n = sel ? sel.size : data.periodKeysSorted.length;
   el('periodoHint').textContent = (data.granularity === 'week' && n === 1 && el('filterMetrica').value === 'venta')
     ? '📅 Semana específica — "Serie de tiempo" muestra el detalle día a día.' : '';
 }
 function periodsInScope(){
-  const data = activeSource();
-  return selectedPeriods ? data.periodKeysSorted.filter(k => selectedPeriods.has(k)) : data.periodKeysSorted;
+  const data = periodSourceData();
+  const sel = activePeriodsGet();
+  return sel ? data.periodKeysSorted.filter(k => sel.has(k)) : data.periodKeysSorted;
 }
 
 function initFilters(){
@@ -533,7 +547,7 @@ function initFilters(){
   btn.addEventListener('click', (e) => { e.stopPropagation(); popover.classList.toggle('hidden-block'); });
   document.addEventListener('click', (e) => { if (!popover.contains(e.target) && e.target !== btn) popover.classList.add('hidden-block'); });
   el('periodoAllBtn').addEventListener('click', () => {
-    selectedPeriods = null;
+    activePeriodsSet(null);
     popover.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
     el('periodoBtn').textContent = '📅 Fechas (todas)';
     renderKpis(); refreshActiveView();
@@ -541,7 +555,7 @@ function initFilters(){
   el('periodoNoneBtn').addEventListener('click', () => {
     const boxes = Array.from(popover.querySelectorAll('input[type=checkbox]'));
     if (!boxes.length) return;
-    selectedPeriods = new Set([boxes[0].dataset.period]);
+    activePeriodsSet(new Set([boxes[0].dataset.period]));
     renderPeriodPopover();
     renderKpis(); refreshActiveView();
   });
@@ -596,8 +610,10 @@ function renderKpis(){
 
   if (metric === 'venta') {
     const ventaPeriodo = periodPoints.reduce((a, p) => a + p.valorVenta, 0);
-    const idx = data.periodKeysSorted.indexOf(period);
-    const prevKey = idx > 0 ? data.periodKeysSorted[idx - 1] : null;
+    // "Anterior" es el periodo previo DENTRO de lo seleccionado (filtro de
+    // Fechas), no el periodo calendario inmediatamente anterior — mismo
+    // criterio que el dashboard en pantalla.
+    const prevKey = scope.length > 1 ? scope[scope.length - 2] : null;
     const prevPoints = prevKey ? allPoints.filter(p => p.periodKey === prevKey) : [];
     const ventaPrev = prevPoints.reduce((a, p) => a + p.valorVenta, 0);
     const crecimiento = ventaPrev > 0 ? (ventaPeriodo - ventaPrev) / ventaPrev : null;
@@ -783,8 +799,17 @@ function viewMermas(){
   const bloqueLabel = bloqueFilter ? ' — ' + bloqueFilter : '';
   const data = currentMovData;
 
+  // El botón "📅 Fechas" usa el calendario propio de Mermas (ver
+  // periodSourceData/activePeriodsGet) — hay que repoblarlo acá porque
+  // recomputeData() solo lo hace al cambiar de granularidad, no al cambiar
+  // de pestaña top-level.
+  renderPeriodPopover();
+  const periodKeysInScope = periodsInScope();
+
   const allPoints = Array.from(data.bySede.flatMap(s => s.points)).filter(p => !sedeFilter || p.sedeName === sedeFilter);
-  const lastPeriod = data.periodKeysSorted[data.periodKeysSorted.length - 1];
+  // "Último periodo" es el último DENTRO de lo seleccionado en Fechas, no el
+  // último de todo el historial — mismo criterio que el dashboard en pantalla.
+  const lastPeriod = periodKeysInScope[periodKeysInScope.length - 1];
   const lastMetrics = allPoints.filter(p => p.periodKey === lastPeriod).map(p => movMetricFor(bloqueFilter, p));
   const lastDisp = lastMetrics.reduce((a, m) => a + m.disponible, 0);
   const lastDif = lastMetrics.reduce((a, m) => a + m.diferenciaKL, 0);
@@ -795,11 +820,12 @@ function viewMermas(){
     '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Diferencia KL — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtNum(lastDif) + '</div></div>' +
     '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">% Diferencia — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtPct(lastPct) + '</div></div>';
 
-  mermasCtx = { data, sedeFilter, bloqueFilter, bloqueLabel, allPoints, lastPeriod };
+  mermasCtx = { data, sedeFilter, bloqueFilter, bloqueLabel, allPoints, lastPeriod, periodKeysInScope };
   renderMermasActiveSubView();
 
   // Detalle por periodo
-  let rows = Array.from(data.bySede.flatMap(s => s.points));
+  const scopeSet = new Set(periodKeysInScope);
+  let rows = Array.from(data.bySede.flatMap(s => s.points)).filter(r => scopeSet.has(r.periodKey));
   if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
   rows = rows.slice().sort((a, b) => a.periodKey < b.periodKey ? 1 : -1);
   el('mermasTableBody').innerHTML = rows.map(r => {
@@ -824,14 +850,14 @@ function renderMermasActiveSubView(){
 }
 
 function renderMermasTiempoChart(){
-  const { data, sedeFilter, bloqueFilter, bloqueLabel } = mermasCtx;
+  const { data, sedeFilter, bloqueFilter, bloqueLabel, periodKeysInScope } = mermasCtx;
   const palette = SEDE_PALETTE;
   destroyChart('mermasTiempo');
   const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
-  const labels = data.periodKeysSorted.map(k => (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
+  const labels = periodKeysInScope.map(k => (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
   const tiempoDatasets = series.map((s, i) => {
     const byPeriod = new Map(s.points.map(p => [p.periodKey, movMetricFor(bloqueFilter, p).diferenciaKL]));
-    return { label: s.sedeName, data: data.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
+    return { label: s.sedeName, data: periodKeysInScope.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
   });
   const tiempoOpts = chartOptions('Diferencia KL' + bloqueLabel + ' en el tiempo', null, fmtNum);
   tiempoOpts.plugins.legend.display = series.length > 1;
@@ -839,10 +865,11 @@ function renderMermasTiempoChart(){
 }
 
 function renderMermasSedesChart(){
-  const { data, sedeFilter, bloqueFilter, bloqueLabel } = mermasCtx;
+  const { data, sedeFilter, bloqueFilter, bloqueLabel, periodKeysInScope } = mermasCtx;
   destroyChart('mermasSedes');
+  const scopeSet = new Set(periodKeysInScope);
   const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
-  const diffBySede = series.map(s => [s.sedeName, s.points.reduce((a, p) => a + movMetricFor(bloqueFilter, p).diferenciaKL, 0)]);
+  const diffBySede = series.map(s => [s.sedeName, s.points.filter(p => scopeSet.has(p.periodKey)).reduce((a, p) => a + movMetricFor(bloqueFilter, p).diferenciaKL, 0)]);
   const sedeLabels = diffBySede.map(p => p[0]), sedeValues = diffBySede.map(p => p[1]);
   // Todas las barras crecen hacia arriba (magnitud); el signo se distingue
   // por color (colorFor: rojo = faltante) en vez de la dirección de la

@@ -771,6 +771,11 @@ async function downloadBalanceReport() {
 let reportesWeeks = null; // filas crudas de balance_weeks (todas las sedes), cargadas una vez por visita
 let chartReportesMargen, chartReportesUtilidad, chartReportesPresupuesto;
 let reportesSelectedPeriods = null; // Set<periodKey> | null (null = todos los periodos disponibles)
+// Mermas usa su PROPIO calendario de periodos (movimientos_weeks, distinto
+// del de Balance/Ventas) — el botón "📅 Fechas" se reutiliza tal cual, pero
+// necesita su propia selección para no mezclar periodos de una fuente con
+// los de la otra (ver reportesActivePeriodsGet/Set más abajo).
+let reportesMermasSelectedPeriods = null;
 // Sub-vista activa del dashboard unificado: 'tiempo' | 'sedes' | 'ranking' | 'presupuesto'.
 // "presupuesto" ignora el selector de métrica/granularidad (siempre es venta
 // real del mes en curso contra la meta) — las otras 3 sí dependen de ellos.
@@ -857,14 +862,20 @@ function renderReportes() {
   const periodLabelOf = (k) => metric === 'venta'
     ? ((ventaData.byPeriod.get(k) || [])[0]?.periodLabel || k)
     : ((data.byPeriod.get(k) || [])[0]?.periodLabel || k);
-  renderReportesPeriodChips(allPeriodKeys, periodLabelOf, granularity);
+  // Mermas puebla el mismo popover con SU PROPIO calendario de periodos
+  // (ver renderReportesMermasView) — no pisarlo aquí con los de Balance/Ventas.
+  if (reportesSubView !== 'mermas') renderReportesPeriodChips(allPeriodKeys, periodLabelOf, granularity);
   const selectedSet = reportesSelectedPeriods || new Set(allPeriodKeys);
   const periodKeysInScope = allPeriodKeys.filter(k => selectedSet.has(k));
 
   const GRAN_LABEL = { week: 'semana', month: 'mes', year: 'año' };
   const lastPeriod = periodKeysInScope[periodKeysInScope.length - 1];
-  const lastIdxFull = allPeriodKeys.indexOf(lastPeriod);
-  const prevPeriod = lastIdxFull > 0 ? allPeriodKeys[lastIdxFull - 1] : null;
+  // "Anterior" es el periodo previo DENTRO de lo seleccionado (filtro de
+  // Fechas), no el periodo calendario inmediatamente anterior — si el
+  // usuario elige puntualmente "agosto 2025" y "agosto 2026" (saltándose
+  // todo lo del medio) para comparar año contra año, el crecimiento debe
+  // salir de esos dos, no de agosto vs. julio 2026.
+  const prevPeriod = periodKeysInScope.length > 1 ? periodKeysInScope[periodKeysInScope.length - 2] : null;
 
   const allPoints = Array.from(data.bySede.values()).flat().filter(p => !sedeFilter || p.sedeName === sedeFilter);
   const lastPoints = allPoints.filter(p => p.periodKey === lastPeriod);
@@ -948,25 +959,35 @@ function switchReportesSubView(view) {
 // Botón "📅 Fechas" con panel desplegable: casillas + "seleccionar todos" /
 // "deseleccionar todos" — reemplaza la fila de chips (con muchas semanas se
 // volvía una tira horizontal incómoda de recorrer).
+// El botón "📅 Fechas" es UN SOLO popover compartido, pero su selección
+// debe ir a una variable distinta según la sub-vista activa: Mermas tiene su
+// propio calendario de periodos (movimientos_weeks), separado del de
+// Balance/Ventas — mezclarlos en la misma Set rompería a ambos lados.
+function reportesActivePeriodsGet() { return reportesSubView === 'mermas' ? reportesMermasSelectedPeriods : reportesSelectedPeriods; }
+function reportesActivePeriodsSet(v) { if (reportesSubView === 'mermas') reportesMermasSelectedPeriods = v; else reportesSelectedPeriods = v; }
+
 function renderReportesPeriodChips(periodKeys, periodLabelOf, granularity) {
   const list = el('reportesPeriodList');
   list.innerHTML = periodKeys.slice().reverse().map(k => {
-    const checked = !reportesSelectedPeriods || reportesSelectedPeriods.has(k);
+    const sel = reportesActivePeriodsGet();
+    const checked = !sel || sel.has(k);
     return `<label><input type="checkbox" data-period="${escapeHtml(k)}" ${checked ? 'checked' : ''}> ${escapeHtml(periodLabelOf(k))}</label>`;
   }).join('');
   list.querySelectorAll('input[type=checkbox]').forEach(cb => {
     cb.addEventListener('change', () => {
-      if (!reportesSelectedPeriods) reportesSelectedPeriods = new Set(periodKeys);
+      let sel = reportesActivePeriodsGet();
+      if (!sel) { sel = new Set(periodKeys); reportesActivePeriodsSet(sel); }
       const k = cb.dataset.period;
-      if (cb.checked) reportesSelectedPeriods.add(k);
-      else if (reportesSelectedPeriods.size > 1) reportesSelectedPeriods.delete(k); // no permitir dejar 0
+      if (cb.checked) sel.add(k);
+      else if (sel.size > 1) sel.delete(k); // no permitir dejar 0
       else cb.checked = true; // revertir: siempre debe quedar al menos 1 periodo
-      if (reportesSelectedPeriods.size === periodKeys.length) reportesSelectedPeriods = null; // "todos" implícito
+      if (sel.size === periodKeys.length) reportesActivePeriodsSet(null); // "todos" implícito
       renderReportes();
     });
   });
 
-  const n = reportesSelectedPeriods ? reportesSelectedPeriods.size : periodKeys.length;
+  const sel = reportesActivePeriodsGet();
+  const n = sel ? sel.size : periodKeys.length;
   el('reportesPeriodBtn').textContent = n === periodKeys.length ? '📅 Fechas (todas)' : `📅 Fechas (${n})`;
   el('reportesPeriodHint').textContent = (granularity === 'week' && n === 1)
     ? '📅 Semana específica — "en el tiempo" muestra el detalle día a día (solo con la métrica Ventas).'
@@ -978,14 +999,14 @@ function initPeriodPopover(btnId, popoverId, allBtnId, noneBtnId) {
   btn.addEventListener('click', (e) => { e.stopPropagation(); popover.classList.toggle('hidden-block'); });
   document.addEventListener('click', (e) => { if (!popover.contains(e.target) && e.target !== btn) popover.classList.add('hidden-block'); });
   el(allBtnId).addEventListener('click', () => {
-    reportesSelectedPeriods = null;
+    reportesActivePeriodsSet(null);
     popover.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
     renderReportes();
   });
   el(noneBtnId).addEventListener('click', () => {
     const boxes = Array.from(popover.querySelectorAll('input[type=checkbox]'));
     if (!boxes.length) return;
-    reportesSelectedPeriods = new Set([boxes[0].dataset.period]); // siempre queda al menos 1
+    reportesActivePeriodsSet(new Set([boxes[0].dataset.period])); // siempre queda al menos 1
     renderReportes();
   });
 }
@@ -1351,13 +1372,15 @@ function movMetricFor(point) {
 // del usuario (antes vivía en su propia pestaña "Tabla de Movimientos",
 // que ahora solo sirve para cargar archivos). Respeta el filtro de sede y
 // la granularidad compartidos (semana/mes/año); ignora el selector de
-// "Métrica" y el popover de "Fechas" (no aplican a mermas) y tiene su
-// propio selector de "Bloque".
+// "Métrica" (no aplica a mermas) y tiene su propio selector de "Bloque".
+// El popover "📅 Fechas" SÍ aplica acá — usa su propio calendario de
+// periodos (movimientos_weeks, ver reportesMermasSelectedPeriods) en vez
+// del de Balance/Ventas, porque las semanas guardadas no son las mismas.
 // Estado de la última llamada a renderReportesMermasView, para poder
 // re-renderizar SOLO el gráfico de la sub-pestaña activa cuando el usuario
 // cambia de tiempo/sedes/bloques (ver renderMermasActiveSubView) sin volver
 // a agregar los datos desde cero.
-let mermasCurrentData = null, mermasCurrentSedeFilter = '', mermasCurrentLastPeriod = null, mermasCurrentGranLabel = '';
+let mermasCurrentData = null, mermasCurrentSedeFilter = '', mermasCurrentLastPeriod = null, mermasCurrentGranLabel = '', mermasCurrentPeriodKeysInScope = null;
 
 function renderReportesMermasView(sedeFilter, granularity) {
   if (!movHistWeeks || !movHistWeeks.length) return;
@@ -1369,8 +1392,13 @@ function renderReportesMermasView(sedeFilter, granularity) {
   }
   bloqueSel.value = movBloqueFilter;
 
+  const periodLabelOf = (k) => (data.byPeriod.get(k) || [])[0]?.periodLabel || k;
+  renderReportesPeriodChips(data.periodKeysSorted, periodLabelOf, granularity);
+  const selectedSet = reportesMermasSelectedPeriods || new Set(data.periodKeysSorted);
+  const periodKeysInScope = data.periodKeysSorted.filter(k => selectedSet.has(k));
+
   const allPoints = Array.from(data.bySede.values()).flat().filter(p => !sedeFilter || p.sedeName === sedeFilter);
-  const lastPeriod = data.periodKeysSorted[data.periodKeysSorted.length - 1];
+  const lastPeriod = periodKeysInScope[periodKeysInScope.length - 1];
   const lastPoints = allPoints.filter(p => p.periodKey === lastPeriod);
   const lastMetrics = lastPoints.map(movMetricFor);
   const lastDisponible = lastMetrics.reduce((a, m) => a + m.disponible, 0);
@@ -1388,6 +1416,7 @@ function renderReportesMermasView(sedeFilter, granularity) {
   mermasCurrentSedeFilter = sedeFilter;
   mermasCurrentLastPeriod = lastPeriod;
   mermasCurrentGranLabel = GRAN_LABEL[granularity];
+  mermasCurrentPeriodKeysInScope = periodKeysInScope;
   renderMermasActiveSubView();
   renderMermasTable(data, sedeFilter);
 }
@@ -1402,33 +1431,34 @@ function renderReportesMermasView(sedeFilter, granularity) {
 // visible en el DOM.
 function renderMermasActiveSubView() {
   if (!mermasCurrentData) return;
-  if (mermasSubView === 'sedes') renderMermasSedesChart(mermasCurrentData, mermasCurrentSedeFilter);
+  if (mermasSubView === 'sedes') renderMermasSedesChart(mermasCurrentData, mermasCurrentSedeFilter, mermasCurrentPeriodKeysInScope);
   else if (mermasSubView === 'bloques') renderMermasBloquesChart(mermasCurrentData, mermasCurrentSedeFilter, mermasCurrentLastPeriod, mermasCurrentGranLabel);
-  else renderMermasTiempoChart(mermasCurrentData, mermasCurrentSedeFilter);
+  else renderMermasTiempoChart(mermasCurrentData, mermasCurrentSedeFilter, mermasCurrentPeriodKeysInScope);
 }
 
-function renderMermasTiempoChart(data, sedeFilter) {
+function renderMermasTiempoChart(data, sedeFilter, periodKeysInScope) {
   const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
-  const labels = data.periodKeysSorted.map(k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k);
+  const labels = periodKeysInScope.map(k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const palette = SEDE_PALETTE;
   const metricLabel = movBloqueFilter ? 'Diferencia KL' + ' — ' + movBloqueFilter : 'Diferencia KL';
 
   if (chartMovDiferencia) chartMovDiferencia.destroy();
   const diffDatasets = series.map(([sedeName, points], i) => {
     const byPeriod = new Map(points.map(p => [p.periodKey, movMetricFor(p).diferenciaKL]));
-    return { label: sedeName, data: data.periodKeysSorted.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
+    return { label: sedeName, data: periodKeysInScope.map(k => byPeriod.has(k) ? byPeriod.get(k) : null), borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], spanGaps: true, tension: .25 };
   });
   const diffOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesView');
   diffOpts.plugins.legend.display = series.length > 1;
   chartMovDiferencia = new Chart(el('chartReportesMermasTiempo').getContext('2d'), { type: 'line', data: { labels, datasets: diffDatasets }, options: diffOpts });
 }
 
-function renderMermasSedesChart(data, sedeFilter) {
+function renderMermasSedesChart(data, sedeFilter, periodKeysInScope) {
   const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
   const metricLabel = movBloqueFilter ? 'Diferencia KL' + ' — ' + movBloqueFilter : 'Diferencia KL';
+  const scopeSet = new Set(periodKeysInScope);
 
   if (chartMovSedes) chartMovSedes.destroy();
-  const diffBySede = series.map(([sedeName, points]) => [sedeName, points.reduce((a, p) => a + movMetricFor(p).diferenciaKL, 0)]);
+  const diffBySede = series.map(([sedeName, points]) => [sedeName, points.filter(p => scopeSet.has(p.periodKey)).reduce((a, p) => a + movMetricFor(p).diferenciaKL, 0)]);
   const sedeLabels = diffBySede.map(([s]) => s), sedeValues = diffBySede.map(([, v]) => v);
   // Todas las barras crecen hacia arriba desde cero (magnitud del faltante/
   // sobrante) en vez de que las negativas cuelguen hacia abajo del eje — el
@@ -1513,7 +1543,8 @@ function renderMermasProductDrilldown(bloque, sedeFilter) {
 }
 
 function renderMermasTable(data, sedeFilter) {
-  let rows = Array.from(data.bySede.values()).flat();
+  const scopeSet = new Set(mermasCurrentPeriodKeysInScope || data.periodKeysSorted);
+  let rows = Array.from(data.bySede.values()).flat().filter(r => scopeSet.has(r.periodKey));
   if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
   rows = rows.slice().sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
   el('reportesMermasTableBody').innerHTML = rows.map(r => {
@@ -2060,7 +2091,7 @@ el('balanceDownloadReportBtn').addEventListener('click', downloadBalanceReport);
 el('modeReportesBtn').addEventListener('click', () => switchFlow('reportes'));
 el('backFromReportesBtn').addEventListener('click', () => switchFlow('choice'));
 el('reportesMetrica').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
-el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
+el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; renderReportes(); });
 el('reportesSedeFilter').addEventListener('change', renderReportes);
 el('reportesDownloadBtn').addEventListener('click', downloadReportesReport);
 document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => {
