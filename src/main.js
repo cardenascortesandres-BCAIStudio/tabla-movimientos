@@ -921,6 +921,14 @@ function switchMermasSubView(view) {
   el('reportesMermasTiempoView').classList.toggle('hidden-block', view !== 'tiempo');
   el('reportesMermasSedesView').classList.toggle('hidden-block', view !== 'sedes');
   el('reportesMermasBloquesView').classList.toggle('hidden-block', view !== 'bloques');
+  // Los 3 gráficos se crean siempre, aunque su panel esté oculto — un
+  // gráfico creado con el canvas en display:none queda con tamaño 0 y no se
+  // corrige solo al mostrarse después (Chart.js no vuelve a medir el
+  // contenedor por su cuenta en ese caso). Se fuerza resize() del que
+  // corresponde al panel recién visible para que aparezca bien.
+  if (view === 'tiempo' && chartMovDiferencia) chartMovDiferencia.resize();
+  if (view === 'sedes' && chartMovSedes) chartMovSedes.resize();
+  if (view === 'bloques' && chartMovBloques) chartMovBloques.resize();
 }
 
 function switchReportesSubView(view) {

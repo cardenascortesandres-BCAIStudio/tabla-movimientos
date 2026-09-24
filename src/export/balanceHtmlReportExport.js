@@ -462,6 +462,13 @@ function initMermasSubTabs(){
       const v = btn.dataset.mermasView;
       document.querySelectorAll('.mermas-sub-panel').forEach(p => p.classList.add('hidden-block'));
       el('mermas-sub-' + v).classList.remove('hidden-block');
+      // Los 3 gráficos se crean siempre, aunque su panel esté oculto — un
+      // gráfico creado con el canvas en display:none queda con tamaño 0 y no
+      // se corrige solo al mostrarse (Chart.js no vuelve a medir el
+      // contenedor por su cuenta). Se fuerza resize() del que corresponde.
+      if (v === 'tiempo' && charts.mermasTiempo) charts.mermasTiempo.resize();
+      if (v === 'sedes' && charts.mermasSedes) charts.mermasSedes.resize();
+      if (v === 'bloques' && charts.mermasBloques) charts.mermasBloques.resize();
     });
   });
 }
