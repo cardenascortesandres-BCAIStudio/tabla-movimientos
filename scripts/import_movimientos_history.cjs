@@ -180,6 +180,15 @@ function parseFinalMovimientosFile(rows, sedeName) {
       continue;
     }
     if (!codeNorm) continue;
+    // Productos como "D.C. GORDANA"/"DESPERDICIO" a veces quedan SIN fórmula
+    // de "% Diferencia" en el Excel (celda realmente vacía, no un 0) — el
+    // usuario confirmó que esos no cuentan para el bloque (no tienen fórmula
+    // porque no deben incluirse en el cálculo). Se detecta ANTES de toNum()
+    // (que convertiría "" en 0, indistinguible de un 0% real) y se descarta
+    // la fila completa cuando la columna existe pero viene en blanco.
+    const pctRaw = pctCol !== -1 ? row[pctCol] : undefined;
+    const pctIsBlank = pctCol !== -1 && (pctRaw === undefined || pctRaw === null || String(pctRaw).trim() === '');
+    if (pctIsBlank) continue;
     buffer.push({
       code: String(codeRaw), name: String(nameRaw == null ? '' : nameRaw).trim(),
       disponible: toNum(row[disponibleCol]), diferenciaKL: toNum(row[diferenciaCol]),
