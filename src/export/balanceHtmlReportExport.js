@@ -459,16 +459,10 @@ function initMermasSubTabs(){
     btn.addEventListener('click', () => {
       document.querySelectorAll('.mermas-sub-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      const v = btn.dataset.mermasView;
+      mermasSubView = btn.dataset.mermasView;
       document.querySelectorAll('.mermas-sub-panel').forEach(p => p.classList.add('hidden-block'));
-      el('mermas-sub-' + v).classList.remove('hidden-block');
-      // Los 3 gráficos se crean siempre, aunque su panel esté oculto — un
-      // gráfico creado con el canvas en display:none queda con tamaño 0 y no
-      // se corrige solo al mostrarse (Chart.js no vuelve a medir el
-      // contenedor por su cuenta). Se fuerza resize() del que corresponde.
-      if (v === 'tiempo' && charts.mermasTiempo) charts.mermasTiempo.resize();
-      if (v === 'sedes' && charts.mermasSedes) charts.mermasSedes.resize();
-      if (v === 'bloques' && charts.mermasBloques) charts.mermasBloques.resize();
+      el('mermas-sub-' + mermasSubView).classList.remove('hidden-block');
+      renderMermasActiveSubView();
     });
   });
 }
@@ -775,6 +769,12 @@ function movMetricFor(bloqueFilter, point){
   const b = (point.byBloque || []).find(x => x.bloque === bloqueFilter);
   return b ? { disponible: b.disponible, diferenciaKL: b.diferenciaKL, pctDiferencia: b.pctDiferencia } : { disponible: 0, diferenciaKL: 0, pctDiferencia: 0 };
 }
+// Estado de la última llamada a viewMermas, para poder re-renderizar SOLO
+// el gráfico de la sub-pestaña activa (ver renderMermasActiveSubView) sin
+// recalcular todo de nuevo.
+let mermasSubView = 'tiempo';
+let mermasCtx = null; // { data, sedeFilter, bloqueFilter, bloqueLabel, allPoints, lastPeriod }
+
 function viewMermas(){
   destroyChart('mermasTiempo'); destroyChart('mermasSedes'); destroyChart('mermasBloques');
   if (!currentMovData.sedeNames.length) return;
@@ -782,7 +782,6 @@ function viewMermas(){
   const bloqueFilter = el('filterBloque').value;
   const bloqueLabel = bloqueFilter ? ' — ' + bloqueFilter : '';
   const data = currentMovData;
-  const palette = SEDE_PALETTE;
 
   const allPoints = Array.from(data.bySede.flatMap(s => s.points)).filter(p => !sedeFilter || p.sedeName === sedeFilter);
   const lastPeriod = data.periodKeysSorted[data.periodKeysSorted.length - 1];
@@ -796,6 +795,38 @@ function viewMermas(){
     '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Diferencia KL — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtNum(lastDif) + '</div></div>' +
     '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">% Diferencia — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtPct(lastPct) + '</div></div>';
 
+  mermasCtx = { data, sedeFilter, bloqueFilter, bloqueLabel, allPoints, lastPeriod };
+  renderMermasActiveSubView();
+
+  // Detalle por periodo
+  let rows = Array.from(data.bySede.flatMap(s => s.points));
+  if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
+  rows = rows.slice().sort((a, b) => a.periodKey < b.periodKey ? 1 : -1);
+  el('mermasTableBody').innerHTML = rows.map(r => {
+    const m = movMetricFor(bloqueFilter, r);
+    const cls = m.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(m.diferenciaKL) < 0.01 ? 'diff-zero' : '');
+    return '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtNum(m.disponible) + '</td><td class="' + cls + '">' + fmtNum(m.diferenciaKL) + '</td><td>' + fmtPct(m.pctDiferencia) + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="left">Sin datos para este filtro.</td></tr>';
+}
+
+// Renderiza SOLO el gráfico de la sub-pestaña actualmente visible
+// (mermasSubView) — nunca los 3 a la vez. Un gráfico de Chart.js creado con
+// su canvas en display:none queda con tamaño 0 para siempre (no se corrige
+// solo, ni con resize(), al mostrarse después); la única forma robusta de
+// evitarlo es no crearlo mientras está oculto. Se llama tanto al recalcular
+// todo (viewMermas) como al cambiar de sub-pestaña (initMermasSubTabs), en
+// ambos casos con el panel destino ya visible en el DOM.
+function renderMermasActiveSubView(){
+  if (!mermasCtx) return;
+  if (mermasSubView === 'sedes') renderMermasSedesChart();
+  else if (mermasSubView === 'bloques') renderMermasBloquesChart();
+  else renderMermasTiempoChart();
+}
+
+function renderMermasTiempoChart(){
+  const { data, sedeFilter, bloqueFilter, bloqueLabel } = mermasCtx;
+  const palette = SEDE_PALETTE;
+  destroyChart('mermasTiempo');
   const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
   const labels = data.periodKeysSorted.map(k => (data.byPeriod.find(p => p.periodKey === k) || {}).points[0]?.periodLabel || k);
   const tiempoDatasets = series.map((s, i) => {
@@ -805,7 +836,12 @@ function viewMermas(){
   const tiempoOpts = chartOptions('Diferencia KL' + bloqueLabel + ' en el tiempo', null, fmtNum);
   tiempoOpts.plugins.legend.display = series.length > 1;
   charts.mermasTiempo = new Chart(el('chartMermasTiempo').getContext('2d'), { type: 'line', data: { labels, datasets: tiempoDatasets }, options: tiempoOpts });
+}
 
+function renderMermasSedesChart(){
+  const { data, sedeFilter, bloqueFilter, bloqueLabel } = mermasCtx;
+  destroyChart('mermasSedes');
+  const series = sedeFilter ? data.bySede.filter(s => s.sedeName === sedeFilter) : data.bySede;
   const diffBySede = series.map(s => [s.sedeName, s.points.reduce((a, p) => a + movMetricFor(bloqueFilter, p).diferenciaKL, 0)]);
   const sedeLabels = diffBySede.map(p => p[0]), sedeValues = diffBySede.map(p => p[1]);
   // Todas las barras crecen hacia arriba (magnitud); el signo se distingue
@@ -818,7 +854,11 @@ function viewMermas(){
     type: 'bar', data: { labels: sedeLabels, datasets: [{ data: sedeValues.map(v => Math.abs(v)), backgroundColor: sedeValues.map(v => colorFor(v)), borderRadius: 6 }] },
     options: sedesOpts
   });
+}
 
+function renderMermasBloquesChart(){
+  const { data, sedeFilter, allPoints, lastPeriod } = mermasCtx;
+  destroyChart('mermasBloques');
   // Ranking de los 12 bloques del ÚLTIMO periodo (antes sumaba todo el
   // historial cargado, lo que hacía que el tooltip de una barra no
   // coincidiera con la fila de esa semana en "Detalle por periodo" — mismo
@@ -838,16 +878,6 @@ function viewMermas(){
     type: 'bar', data: { labels: bloqueLabels, datasets: [{ data: bloqueValues, backgroundColor: bloqueValues.map(v => colorFor(v)), borderRadius: 6 }] }, options: bloquesOpts
   });
   el('mermasDrillHint').classList.toggle('hidden-block', !!sedeFilter);
-
-  // Detalle por periodo
-  let rows = Array.from(data.bySede.flatMap(s => s.points));
-  if (sedeFilter) rows = rows.filter(r => r.sedeName === sedeFilter);
-  rows = rows.slice().sort((a, b) => a.periodKey < b.periodKey ? 1 : -1);
-  el('mermasTableBody').innerHTML = rows.map(r => {
-    const m = movMetricFor(bloqueFilter, r);
-    const cls = m.diferenciaKL < -0.01 ? 'diff-neg' : (Math.abs(m.diferenciaKL) < 0.01 ? 'diff-zero' : '');
-    return '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtNum(m.disponible) + '</td><td class="' + cls + '">' + fmtNum(m.diferenciaKL) + '</td><td>' + fmtPct(m.pctDiferencia) + '</td></tr>';
-  }).join('') || '<tr><td colspan="5" class="left">Sin datos para este filtro.</td></tr>';
 }
 
 // Detalle de productos de un bloque, de la semana más reciente guardada de

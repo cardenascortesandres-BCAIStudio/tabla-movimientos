@@ -911,9 +911,16 @@ function renderReportes() {
 // Sub-pestañas DENTRO de "📋 Mermas" (a pedido del usuario, para no mostrar
 // los 3 gráficos + tabla apilados a la vez): tiempo / sedes / bloques
 // (bloques incluye también el drilldown de productos y "Detalle por
-// periodo"). Los 3 gráficos se siguen creando siempre en cada render — solo
-// se oculta/muestra el contenedor — igual que ya hace switchReportesSubView
-// con las sub-vistas de arriba.
+// periodo"). A diferencia de switchReportesSubView (las sub-vistas de
+// arriba), acá el gráfico de cada panel se crea BAJO DEMANDA, solo cuando
+// ese panel pasa a estar visible — nunca mientras está en display:none.
+// (Un intento anterior creaba los 3 gráficos siempre y solo ocultaba el
+// contenedor con CSS + un chart.resize() al mostrarlo, pero un canvas
+// creado con su ancestro en display:none queda con tamaño 0 de forma
+// permanente: ni el ResizeObserver interno de Chart.js ni un resize()
+// manual lo corrigen después, porque en ese instante el elemento nunca
+// tuvo layout real que medir. La única forma robusta es no construir el
+// gráfico hasta que su panel ya esté en el DOM con tamaño real.)
 let mermasSubView = 'tiempo';
 function switchMermasSubView(view) {
   mermasSubView = view;
@@ -921,14 +928,7 @@ function switchMermasSubView(view) {
   el('reportesMermasTiempoView').classList.toggle('hidden-block', view !== 'tiempo');
   el('reportesMermasSedesView').classList.toggle('hidden-block', view !== 'sedes');
   el('reportesMermasBloquesView').classList.toggle('hidden-block', view !== 'bloques');
-  // Los 3 gráficos se crean siempre, aunque su panel esté oculto — un
-  // gráfico creado con el canvas en display:none queda con tamaño 0 y no se
-  // corrige solo al mostrarse después (Chart.js no vuelve a medir el
-  // contenedor por su cuenta en ese caso). Se fuerza resize() del que
-  // corresponde al panel recién visible para que aparezca bien.
-  if (view === 'tiempo' && chartMovDiferencia) chartMovDiferencia.resize();
-  if (view === 'sedes' && chartMovSedes) chartMovSedes.resize();
-  if (view === 'bloques' && chartMovBloques) chartMovBloques.resize();
+  renderMermasActiveSubView();
 }
 
 function switchReportesSubView(view) {
@@ -1353,6 +1353,12 @@ function movMetricFor(point) {
 // la granularidad compartidos (semana/mes/año); ignora el selector de
 // "Métrica" y el popover de "Fechas" (no aplican a mermas) y tiene su
 // propio selector de "Bloque".
+// Estado de la última llamada a renderReportesMermasView, para poder
+// re-renderizar SOLO el gráfico de la sub-pestaña activa cuando el usuario
+// cambia de tiempo/sedes/bloques (ver renderMermasActiveSubView) sin volver
+// a agregar los datos desde cero.
+let mermasCurrentData = null, mermasCurrentSedeFilter = '', mermasCurrentLastPeriod = null, mermasCurrentGranLabel = '';
+
 function renderReportesMermasView(sedeFilter, granularity) {
   if (!movHistWeeks || !movHistWeeks.length) return;
   const data = aggregateMovByPeriod(movHistWeeks, granularity);
@@ -1378,12 +1384,30 @@ function renderReportesMermasView(sedeFilter, granularity) {
     <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Diferencia KL — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmt(lastDiferencia)}</div></div>
     <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">% Diferencia — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmtPct(lastPct)}</div></div>`;
 
-  renderMermasCharts(data, sedeFilter);
-  renderMermasBloquesChart(data, sedeFilter, lastPeriod, GRAN_LABEL[granularity]);
+  mermasCurrentData = data;
+  mermasCurrentSedeFilter = sedeFilter;
+  mermasCurrentLastPeriod = lastPeriod;
+  mermasCurrentGranLabel = GRAN_LABEL[granularity];
+  renderMermasActiveSubView();
   renderMermasTable(data, sedeFilter);
 }
 
-function renderMermasCharts(data, sedeFilter) {
+// Renderiza SOLO el gráfico de la sub-pestaña actualmente visible
+// (mermasSubView) — nunca los 3 a la vez. Un gráfico de Chart.js creado con
+// su canvas en display:none queda con tamaño 0 para siempre (no se corrige
+// solo, ni con resize(), al mostrarse después); la única forma robusta de
+// evitarlo es no crearlo mientras está oculto. Se llama tanto al cambiar de
+// filtro/granularidad (renderReportesMermasView) como al cambiar de
+// sub-pestaña (switchMermasSubView), en ambos casos con el panel destino ya
+// visible en el DOM.
+function renderMermasActiveSubView() {
+  if (!mermasCurrentData) return;
+  if (mermasSubView === 'sedes') renderMermasSedesChart(mermasCurrentData, mermasCurrentSedeFilter);
+  else if (mermasSubView === 'bloques') renderMermasBloquesChart(mermasCurrentData, mermasCurrentSedeFilter, mermasCurrentLastPeriod, mermasCurrentGranLabel);
+  else renderMermasTiempoChart(mermasCurrentData, mermasCurrentSedeFilter);
+}
+
+function renderMermasTiempoChart(data, sedeFilter) {
   const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
   const labels = data.periodKeysSorted.map(k => (data.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const palette = SEDE_PALETTE;
@@ -1397,6 +1421,11 @@ function renderMermasCharts(data, sedeFilter) {
   const diffOpts = dashboardChartOptions(metricLabel + ' en el tiempo', 'reportesView');
   diffOpts.plugins.legend.display = series.length > 1;
   chartMovDiferencia = new Chart(el('chartReportesMermasTiempo').getContext('2d'), { type: 'line', data: { labels, datasets: diffDatasets }, options: diffOpts });
+}
+
+function renderMermasSedesChart(data, sedeFilter) {
+  const series = sedeFilter ? [[sedeFilter, data.bySede.get(sedeFilter) || []]] : Array.from(data.bySede.entries());
+  const metricLabel = movBloqueFilter ? 'Diferencia KL' + ' — ' + movBloqueFilter : 'Diferencia KL';
 
   if (chartMovSedes) chartMovSedes.destroy();
   const diffBySede = series.map(([sedeName, points]) => [sedeName, points.reduce((a, p) => a + movMetricFor(p).diferenciaKL, 0)]);
