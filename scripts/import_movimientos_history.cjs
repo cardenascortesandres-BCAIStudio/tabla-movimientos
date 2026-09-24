@@ -10,9 +10,9 @@
 // Salsamentaria — ver src/core/movimientosBloques.js).
 //
 // A propósito NO se incluye Planta Pollo (ya no es un punto activo, ver
-// commit "Unifica Presupuesto...") ni la semana del 14-20 de septiembre de
-// 2026 de NINGUNA sede (el usuario todavía no ha terminado de cargarla a
-// mano cuando se corrió este backfill — 2026-09-21).
+// commit "Unifica Presupuesto..."). La semana del 14-20 de septiembre de
+// 2026 se excluyó en el primer backfill (2026-09-21, todavía en curso) y se
+// habilitó el 2026-09-24 cuando el usuario terminó de cargarla a mano.
 //
 // Uso:
 //   node scripts/import_movimientos_history.cjs           -> dry run (no escribe nada)
@@ -37,8 +37,10 @@ const SEDES = [
   ['NARANJOS', 'Los Naranjos'],
 ];
 
-// Semana explícitamente excluida (en curso, sin terminar de cargar al momento del backfill).
-const EXCLUDED_WEEK_START = '2026-09-14';
+// Semana que estuvo excluida (en curso, sin terminar de cargar) hasta el
+// 2026-09-24 — ya no se excluye ninguna, se deja el mecanismo por si hace
+// falta de nuevo con una semana futura.
+const EXCLUDED_WEEK_START = null;
 
 // ---- normalización de texto (igual que src/core/normalize.js) ----
 function removeAccents(str) { return String(str).normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
