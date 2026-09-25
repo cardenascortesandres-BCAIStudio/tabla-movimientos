@@ -76,6 +76,8 @@ const el = (id) => document.getElementById(id);
 function fmt(v) { if (v == null || isNaN(v)) return '0'; const r = Math.round(v * 100) / 100; return Number.isInteger(r) ? String(r) : r.toFixed(2); }
 function fmtPct(v) { return (Math.round(v * 1000) / 10).toFixed(1) + '%'; }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const APP_BUILD = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev';
+function stampName(base) { return base + '_' + new Date().toLocaleString('sv-SE').slice(0, 16).replace(' ', '_').replace(':', '-') + '.html'; }
 function downloadBlob(buffer, filename, mime) {
   const blob = new Blob([buffer], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -768,7 +770,7 @@ async function downloadBalanceReport() {
       horasExtrasApi.getAllDias().catch(() => ({ dias: [] }))
     ]);
     const html = buildBalanceReportHtml(weeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, {});
-    downloadBlob(html, 'balance_comparativo.html', 'text/html');
+    downloadBlob(html, stampName('balance_comparativo'), 'text/html');
   } catch (err) {
     banner.className = 'banner error';
     banner.textContent = '⚠ No se pudo generar el informe comparativo: ' + err.message + ' (necesita conexión con el historial guardado).';
@@ -1232,7 +1234,7 @@ async function downloadReportesReport(initialView) {
     ]);
     reportesWeeks = weeks || reportesWeeks;
     const html = buildBalanceReportHtml(reportesWeeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, { initialView: typeof initialView === 'string' ? initialView : reportesSubView });
-    downloadBlob(html, 'reportes_brangus.html', 'text/html');
+    downloadBlob(html, stampName('reportes_brangus'), 'text/html');
   } finally {
     btn.disabled = false; btn.textContent = originalText;
   }
@@ -2297,6 +2299,7 @@ function toggleThemeMode() {
 // NO hace falta esperar 'DOMContentLoaded' — de hecho, esperar ese evento es
 // una carrera: en algunos entornos ya se disparó antes de que este módulo
 // termine de registrarse, y el listener nunca se ejecuta.
+document.querySelectorAll('.app-build').forEach(n => { n.textContent = 'Versión de la app: ' + APP_BUILD; });
 el('brandStampLogo').src = 'data:image/jpeg;base64,' + LOGO_BRANGUS_BASE64;
 initDropzone();
 initTemplateSelector();

@@ -7,7 +7,12 @@ import { VitePWA } from 'vite-plugin-pwa';
 // el service worker que la hace instalable/offline no funciona sobre file://.
 // El build de doble clic (npm run build) sigue existiendo tal cual, sin
 // tocar; este es un target adicional, no un reemplazo.
+// Sello de versión: se ve en pantalla y en el nombre del HTML descargado, para distinguir de un vistazo
+// si el navegador está sirviendo la app vieja (caché del PWA) o la última publicada.
+const BUILD_TIME = new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogota' }).slice(0, 16);
+
 export default defineConfig({
+  define: { __BUILD_TIME__: JSON.stringify(BUILD_TIME) },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
