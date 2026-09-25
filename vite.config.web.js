@@ -14,6 +14,8 @@ const BUILD_TIME = new Date().toLocaleString('sv-SE', { timeZone: 'America/Bogot
 export default defineConfig({
   define: { __BUILD_TIME__: JSON.stringify(BUILD_TIME) },
   plugins: [
+    // version.json: la app lo consulta al abrir y, si no coincide con su propio sello, se actualiza sola.
+    { name: 'emit-version', generateBundle() { this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: BUILD_TIME }) }); } },
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png'],

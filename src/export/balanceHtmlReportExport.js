@@ -64,7 +64,7 @@ ${VIEWER_CSS}
   <header class="top">
     <div>
       <h1>Reportes — Margen y Utilidad por Sede</h1>
-      <p class="sub">Generado el ${escapeHtml(generatedAt)}${corteLabel ? ' · con corte a ' + escapeHtml(corteLabel) : ''} · ${sedeCount} sede(s) · ${rawWeeks.length} semana(s) guardada(s)</p>
+      <p class="sub">Generado el ${escapeHtml(generatedAt)}${meta?.appBuild ? ' · versión de la app ' + escapeHtml(meta.appBuild) : ''}${corteLabel ? ' · con corte a ' + escapeHtml(corteLabel) : ''} · ${sedeCount} sede(s) · ${rawWeeks.length} semana(s) guardada(s)</p>
     </div>
     <button class="theme-btn" id="themeToggleBtn" title="Personalizar aspecto">🎨 Personalizar</button>
   </header>

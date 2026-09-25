@@ -77,6 +77,23 @@ function fmt(v) { if (v == null || isNaN(v)) return '0'; const r = Math.round(v 
 function fmtPct(v) { return (Math.round(v * 1000) / 10).toFixed(1) + '%'; }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 const APP_BUILD = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev';
+// Si el navegador sirve una copia vieja de la app (caché del PWA), se detecta comparando contra
+// /version.json del servidor y se recarga UNA vez sin caché — así no hace falta Ctrl+Shift+R.
+async function ensureLatestVersion() {
+  if (typeof __BUILD_TIME__ === 'undefined' || location.protocol === 'file:') return;
+  try {
+    const r = await fetch('/version.json?ts=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const { build } = await r.json();
+    if (!build || build === APP_BUILD || sessionStorage.getItem('reloadedFor') === build) return;
+    sessionStorage.setItem('reloadedFor', build);
+    const regs = (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) ? await navigator.serviceWorker.getRegistrations() : [];
+    await Promise.all(regs.map(x => x.unregister()));
+    if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+    location.reload();
+  } catch { /* sin conexión o sin version.json: se ignora */ }
+}
+ensureLatestVersion();
 function stampName(base) { return base + '_' + new Date().toLocaleString('sv-SE').slice(0, 16).replace(' ', '_').replace(':', '-') + '.html'; }
 function downloadBlob(buffer, filename, mime) {
   const blob = new Blob([buffer], { type: mime });
@@ -1233,7 +1250,7 @@ async function downloadReportesReport(initialView) {
       horasExtrasApi.getAllDias().catch(() => ({ dias: horasExtrasAllDias || [] }))
     ]);
     reportesWeeks = weeks || reportesWeeks;
-    const html = buildBalanceReportHtml(reportesWeeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, { initialView: typeof initialView === 'string' ? initialView : reportesSubView });
+    const html = buildBalanceReportHtml(reportesWeeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, { initialView: typeof initialView === 'string' ? initialView : reportesSubView, appBuild: APP_BUILD });
     downloadBlob(html, stampName('reportes_brangus'), 'text/html');
   } finally {
     btn.disabled = false; btn.textContent = originalText;
