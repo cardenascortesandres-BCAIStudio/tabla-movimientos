@@ -760,13 +760,14 @@ async function exportBalanceExcel() {
 async function downloadBalanceReport() {
   const banner = el('balanceSaveBanner');
   try {
-    const [{ weeks }, diasResult, presResult, movResult] = await Promise.all([
+    const [{ weeks }, diasResult, presResult, movResult, horasResult] = await Promise.all([
       balanceApi.getAllWeeks(),
       ventasApi.getAllDias().catch(() => ({ dias: [] })),
       ventasApi.getPresupuestos().catch(() => ({ presupuestos: [] })),
-      movimientosApi.getAllWeeks().catch(() => ({ weeks: [] }))
+      movimientosApi.getAllWeeks().catch(() => ({ weeks: [] })),
+      horasExtrasApi.getAllDias().catch(() => ({ dias: [] }))
     ]);
-    const html = buildBalanceReportHtml(weeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], chartJsRawSource, {});
+    const html = buildBalanceReportHtml(weeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, {});
     downloadBlob(html, 'balance_comparativo.html', 'text/html');
   } catch (err) {
     banner.className = 'banner error';
@@ -834,6 +835,15 @@ async function loadReportesData() {
       movHistWeeks = weeks || [];
       renderReportes();
     } catch { /* silencioso: sin datos de mermas disponibles, el dashboard sigue funcionando igual */ }
+  }
+
+  // Horas Extras para la sub-vista "⏱ Horas Extras" — mismo patrón silencioso.
+  if (!horasExtrasAllDias) {
+    try {
+      const { dias } = await horasExtrasApi.getAllDias();
+      horasExtrasAllDias = dias || [];
+      renderReportes();
+    } catch { /* silencioso: sin datos de horas extra disponibles, el dashboard sigue funcionando igual */ }
   }
 }
 
@@ -914,17 +924,20 @@ function renderReportes() {
       <div class="kpi-card ${scopeUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad acumulada (periodos seleccionados)</div><div class="kpi-value">${fmtCOP(scopeUtilidad)}</div></div>`;
   }
 
-  el('reportesDetalleWrap').classList.toggle('hidden-block', reportesSubView === 'presupuesto' || reportesSubView === 'mermas');
+  const ownDetailView = reportesSubView === 'presupuesto' || reportesSubView === 'mermas' || reportesSubView === 'horas';
+  el('reportesDetalleWrap').classList.toggle('hidden-block', ownDetailView);
   if (reportesSubView === 'presupuesto') {
     renderReportesPresupuestoView(sedeFilter);
   } else if (reportesSubView === 'mermas') {
     renderReportesMermasView(sedeFilter, granularity);
+  } else if (reportesSubView === 'horas') {
+    renderReportesHorasView(sedeFilter, granularity);
   } else if (reportesSubView === 'sedes') {
     renderReportesSedesChart(metric, data, ventaData, sedeFilter, periodKeysInScope, periodLabelOf);
   } else {
     renderReportesTiempoChart(metric, data, ventaData, sedeFilter, periodKeysInScope, granularity, periodLabelOf);
   }
-  if (reportesSubView !== 'presupuesto' && reportesSubView !== 'mermas') renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
+  if (!ownDetailView) renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope);
 }
 
 // Sub-pestañas DENTRO de "📋 Mermas" (a pedido del usuario, para no mostrar
@@ -957,6 +970,7 @@ function switchReportesSubView(view) {
   el('reportesSedesView').classList.toggle('hidden-block', view !== 'sedes');
   el('reportesPresupuestoView').classList.toggle('hidden-block', view !== 'presupuesto');
   el('reportesMermasView').classList.toggle('hidden-block', view !== 'mermas');
+  el('reportesHorasView').classList.toggle('hidden-block', view !== 'horas');
   if (reportesWeeks) renderReportes();
 }
 
@@ -1194,10 +1208,30 @@ function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInSc
   }).join('') || '<tr><td colspan="5" class="left hint">Sin datos para este filtro.</td></tr>';
 }
 
+// Vuelve a pedir todo el historial a la API en vez de usar lo que ya está en
+// memoria (reportesWeeks/ventasAllDias/movHistWeeks/horasExtrasAllDias) —
+// si el usuario acaba de cargar algo nuevo desde otra pantalla sin volver a
+// entrar a Informes, esas variables podían quedar desactualizadas y el
+// informe descargado no reflejaba lo último guardado.
 async function downloadReportesReport() {
   if (!reportesWeeks) return;
-  const html = buildBalanceReportHtml(reportesWeeks, ventasAllDias || [], ventasPresupuestos || [], movHistWeeks || [], chartJsRawSource, {});
-  downloadBlob(html, 'reportes_brangus.html', 'text/html');
+  const btn = el('reportesDownloadBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Generando…';
+  try {
+    const [{ weeks }, diasResult, presResult, movResult, horasResult] = await Promise.all([
+      balanceApi.getAllWeeks(),
+      ventasApi.getAllDias().catch(() => ({ dias: ventasAllDias || [] })),
+      ventasApi.getPresupuestos().catch(() => ({ presupuestos: ventasPresupuestos || [] })),
+      movimientosApi.getAllWeeks().catch(() => ({ weeks: movHistWeeks || [] })),
+      horasExtrasApi.getAllDias().catch(() => ({ dias: horasExtrasAllDias || [] }))
+    ]);
+    reportesWeeks = weeks || reportesWeeks;
+    const html = buildBalanceReportHtml(reportesWeeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, {});
+    downloadBlob(html, 'reportes_brangus.html', 'text/html');
+  } finally {
+    btn.disabled = false; btn.textContent = originalText;
+  }
 }
 
 // ---------------- Reportes: tipo Balance vs Tabla de Movimientos ----------------
@@ -1208,15 +1242,12 @@ function switchReportesType(type) {
   el('reportesTypeMovimientosBtn').classList.toggle('tab-active', type === 'movimientos');
   el('reportesTypeAuditoriasBtn').classList.toggle('tab-active', type === 'auditorias');
   el('reportesTypeVentasBtn').classList.toggle('tab-active', type === 'ventas');
-  el('reportesTypeHorasBtn').classList.toggle('tab-active', type === 'horas');
   el('reportesCard').classList.toggle('hidden-block', type !== 'balance');
   el('reportesMovCard').classList.toggle('hidden-block', type !== 'movimientos');
   el('reportesAudCard').classList.toggle('hidden-block', type !== 'auditorias');
   el('reportesVentCard').classList.toggle('hidden-block', type !== 'ventas');
-  el('reportesHorasCard').classList.toggle('hidden-block', type !== 'horas');
   if (type === 'auditorias' && !audHistAudits) loadAudReportesData();
   if (type === 'ventas' && !ventasAllDias) loadVentReportesData();
-  if (type === 'horas' && !horasExtrasAllDias) loadHorasReportesData();
 }
 
 // ---------------- Reportes de Tabla de Movimientos ----------------
@@ -2136,47 +2167,24 @@ function createHorasUploader(ids, onSaved) {
 const horasUploader = createHorasUploader({
   filesList: 'horasFilesList', previewCard: 'horasPreviewCard', errorBanner: 'horasErrorBanner',
   saveBtn: 'horasSaveBtn', saveBanner: 'horasSaveBanner'
-}, async () => { if (reportesType === 'horas') await loadHorasReportesData(); });
+}, async () => {
+  try {
+    const { dias } = await horasExtrasApi.getAllDias();
+    horasExtrasAllDias = dias || [];
+  } catch { /* silencioso: el histórico se refresca solo la próxima vez que cargue */ }
+  if (reportesWeeks) renderReportes(); // refresca la sub-vista "⏱ Horas Extras" si está unificada y visible
+});
 
-// ---------------- Reportes de Horas Extras ----------------
+// ---------------- Reportes de Horas Extras (unificado en "📊 Informes", junto a Mermas) ----------------
 let horasExtrasAllDias = null; // filas crudas de horas_extra_dias (todas las sedes)
 let chartHorasTiempo, chartHorasRanking;
 
-async function loadHorasReportesData() {
-  el('horasReportesErrorBanner').classList.add('hidden-block');
-  el('horasReportesLoadingHint').classList.remove('hidden-block');
-  el('horasReportesLoadingHint').textContent = 'Cargando historial…';
-  try {
-    const { dias, fromCache } = await horasExtrasApi.getAllDias();
-    horasExtrasAllDias = dias || [];
-    if (!horasExtrasAllDias.length) {
-      el('horasReportesLoadingHint').textContent = 'Todavía no hay horas extra guardadas en el historial.';
-      el('reportesHorasView').classList.add('hidden-block');
-      return;
-    }
-    el('horasReportesLoadingHint').classList.toggle('hidden-block', !fromCache);
-    if (fromCache) el('horasReportesLoadingHint').textContent = 'Mostrando el último historial disponible en este equipo (sin conexión con el servidor ahora mismo).';
-    el('reportesHorasView').classList.remove('hidden-block');
-    el('horasReportesDownloadBtn').disabled = false;
-    renderHorasReportes();
-  } catch (err) {
-    el('horasReportesLoadingHint').classList.add('hidden-block');
-    const b = el('horasReportesErrorBanner');
-    b.classList.remove('hidden-block');
-    b.innerHTML = '⚠ No se pudo cargar el historial: ' + escapeHtml(err.message);
-  }
-}
-
-function renderHorasReportes() {
-  if (!horasExtrasAllDias) return;
-  const granularity = el('horasReportesGranularity').value;
-
-  const sedeNames = Array.from(new Set(horasExtrasAllDias.map(r => r.sede_name))).sort();
-  const sedeSel = el('horasReportesSedeFilter');
-  const prevSede = sedeSel.value;
-  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + sedeNames.map(s => `<option>${escapeHtml(s)}</option>`).join('');
-  if (sedeNames.includes(prevSede)) sedeSel.value = prevSede;
-  const sedeFilter = sedeSel.value;
+// Sub-vista "⏱ Horas Extras" del dashboard unificado — mismo patrón que
+// renderReportesMermasView: respeta el filtro de sede compartido (el de
+// granularidad NO, porque las alertas siempre son semanales por ley) y
+// tiene su propio selector de "Empleado".
+function renderReportesHorasView(sedeFilter, granularity) {
+  if (!horasExtrasAllDias || !horasExtrasAllDias.length) return;
 
   const rowsInSede = sedeFilter ? horasExtrasAllDias.filter(r => r.sede_name === sedeFilter) : horasExtrasAllDias;
   const empleadoNames = Array.from(new Map(rowsInSede.map(r => [r.empleado_id, r.empleado_nombre])).entries());
@@ -2339,10 +2347,7 @@ el('modeHorasExtrasBtn').addEventListener('click', () => switchFlow('horasExtras
 el('backFromHorasExtrasBtn').addEventListener('click', () => switchFlow('choice'));
 wireMultiFileDropzone('horasDropzone', 'horasFileInput', horasUploader.handleFiles);
 el('horasSaveBtn').addEventListener('click', horasUploader.saveAll);
-el('reportesTypeHorasBtn').addEventListener('click', () => switchReportesType('horas'));
-el('horasReportesSedeFilter').addEventListener('change', renderHorasReportes);
-el('horasReportesEmpleadoFilter').addEventListener('change', renderHorasReportes);
-el('horasReportesGranularity').addEventListener('change', renderHorasReportes);
+el('horasReportesEmpleadoFilter').addEventListener('change', renderReportes);
 
 el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
 initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodAllBtn', 'reportesPeriodNoneBtn');

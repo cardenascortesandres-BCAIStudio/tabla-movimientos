@@ -117,21 +117,32 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 .badge-err{background:var(--rojo-bg);color:var(--rojo-2);}
 .hidden-block{display:none !important;}
 
-/* ---- Pantalla inicial: elección de flujo (Sello de Calidad) ---- */
+/* ---- Pantalla inicial: elección de flujo (Sello de Calidad) ----
+   Grid responsivo (en vez del flex de una sola fila de antes, que ya no
+   alcanzaba con 6+ módulos y los apretujaba/desbordaba) — cada tarjeta mide
+   lo mismo y el navegador decide cuántas caben por fila según el ancho. */
 .mode-choice{padding:26px 24px;background:#fdfaf4;border-color:#e6d9bd;}
 .mode-choice h2{border-left-color:var(--rojo-1);color:#2c2318;}
-.mode-grid{display:flex;align-items:stretch;gap:0;margin-top:6px;}
+.mode-section-label{font-size:12px;font-weight:700;color:#8a7550;text-transform:uppercase;letter-spacing:.06em;margin:22px 0 10px;}
+.mode-section-label:first-of-type{margin-top:4px;}
+.mode-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));gap:14px;}
 .mode-option{
-  flex:1;min-width:220px;text-align:left;background:#f8f0e2;border:1.5px solid #ddceac;border-radius:10px 3px 10px 3px;
+  text-align:left;background:#f8f0e2;border:1.5px solid #ddceac;border-radius:10px 3px 10px 3px;
   padding:20px 22px;cursor:pointer;font-family:var(--font);display:flex;flex-direction:column;gap:6px;transition:.15s;
 }
-.mode-option:nth-child(3){border-radius:3px 10px 3px 10px;}
 .mode-option:hover{border-color:var(--rojo-1);box-shadow:0 2px 10px rgba(0,0,0,.08);}
 .mode-eyebrow{font-size:11px;font-weight:700;color:var(--rojo-1);text-transform:uppercase;letter-spacing:.05em;}
 .mode-title{font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:700;color:#2c2318;}
 .mode-desc{font-size:13px;color:#6b5c43;line-height:1.5;}
-.mode-divider{width:1px;margin:4px 20px;background:repeating-linear-gradient(to bottom,#ddceac 0 6px,transparent 6px 12px);}
-@media (max-width:720px){.mode-grid{flex-direction:column;}.mode-divider{display:none;}}
+/* Reportes es el panel principal (a diario, no una carga puntual) — se
+   destaca aparte del grid de módulos de carga, con más presencia visual. */
+.mode-featured{
+  display:flex;width:100%;text-align:left;background:linear-gradient(135deg,#fdf3e2,#f8e9d0);
+  border:2px solid var(--rojo-1);border-radius:12px 4px 12px 4px;padding:22px 24px;cursor:pointer;
+  font-family:var(--font);flex-direction:column;gap:6px;transition:.15s;margin-bottom:6px;
+}
+.mode-featured:hover{box-shadow:0 4px 16px rgba(139,30,30,.15);}
+.mode-featured .mode-title{font-size:21px;}
 @media (max-width:640px){.brand-hero-main{flex-wrap:wrap;}}
 
 .back-btn{margin-bottom:14px;}

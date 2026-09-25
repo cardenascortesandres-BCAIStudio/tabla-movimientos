@@ -12,7 +12,7 @@
 import { CHART_DOWNLOAD_JS, CHART_GLOW_JS } from '../theme/chartDownloadPlugin.js';
 import { SEDE_PALETTE_JS } from '../theme/sedePalette.js';
 
-export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuestoRows, rawMovWeekRows, chartJsSource, meta) {
+export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuestoRows, rawMovWeekRows, rawHorasRows, chartJsSource, meta) {
   const rawWeeks = (rawWeekRows || []).map(w => ({
     sedeName: w.sede_name, weekStart: w.week_start, weekEnd: w.week_end, computed: w.computed || {}
   }));
@@ -21,10 +21,16 @@ export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuesto
   const rawMovWeeks = (rawMovWeekRows || []).map(w => ({
     sedeName: w.sede_name, weekStart: w.week_start, weekEnd: w.week_end, computed: w.computed || {}
   }));
+  const rawHoras = (rawHorasRows || []).map(r => ({
+    sedeName: r.sede_name, empleadoId: r.empleado_id, empleadoNombre: r.empleado_nombre, cargo: r.cargo,
+    fecha: r.fecha, total: Number(r.total) || 0, he: Number(r.he) || 0, hen: Number(r.hen) || 0,
+    hefd: Number(r.hefd) || 0, hefn: Number(r.hefn) || 0
+  }));
   const dataJson = JSON.stringify(rawWeeks);
   const ventasJson = JSON.stringify(rawVentas);
   const presupuestosJson = JSON.stringify(rawPresupuestos);
   const movJson = JSON.stringify(rawMovWeeks);
+  const horasJson = JSON.stringify(rawHoras);
   const generatedAt = new Date().toLocaleString('es-CO');
   const title = `Reportes Brangus${meta?.periodo ? ' — ' + meta.periodo : ''}`;
   const sedeCount = new Set(rawWeeks.map(w => w.sedeName)).size;
@@ -81,6 +87,7 @@ ${VIEWER_CSS}
     <button class="view-tab" data-view="sedes">📊 Comparativa entre sedes</button>
     <button class="view-tab" data-view="presupuesto">🎯 Presupuesto</button>
     <button class="view-tab" data-view="mermas">📋 Mermas</button>
+    <button class="view-tab" data-view="horas">⏱ Horas Extras</button>
   </nav>
 
   <div class="filters">
@@ -96,6 +103,7 @@ ${VIEWER_CSS}
     </select>
     <select id="filterSede"></select>
     <select id="filterBloque"></select>
+    <select id="filterEmpleadoHoras"></select>
     <div class="periodo-picker">
       <button type="button" class="theme-btn" id="periodoBtn">📅 Fechas</button>
       <div class="periodo-popover hidden-block" id="periodoPopover">
@@ -148,6 +156,22 @@ ${VIEWER_CSS}
       </table>
     </div>
   </section>
+  <section class="view-panel hidden-block" id="view-horas">
+    <div class="kpi-grid" id="horasKpiGrid" style="margin-bottom:16px"></div>
+    <table class="dtable" id="horasAlertasTable" style="margin-bottom:16px;">
+      <caption style="text-align:left;font-weight:700;margin-bottom:8px;">Alertas — última semana completa con datos</caption>
+      <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
+      <tbody id="horasAlertasTableBody"></tbody>
+    </table>
+    <div class="chart-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+      <div class="chart-box"><canvas id="chartHorasTiempo"></canvas></div>
+      <div class="chart-box"><canvas id="chartHorasRanking"></canvas></div>
+    </div>
+    <table class="dtable" id="horasTable">
+      <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Periodo</th><th>Horas extra</th><th>Total trabajado</th></tr></thead>
+      <tbody id="horasTableBody"></tbody>
+    </table>
+  </section>
 
   <p class="hint">Informe autocontenido — se puede abrir sin conexión a internet ni instalar nada. Los datos mostrados son un corte fijo del momento de la exportación.</p>
 </div>
@@ -163,6 +187,7 @@ const RAW_WEEKS = ${dataJson};
 const RAW_VENTAS = ${ventasJson};
 const RAW_PRESUPUESTOS = ${presupuestosJson};
 const RAW_MOV_WEEKS = ${movJson};
+const RAW_HORAS = ${horasJson};
 ${AGG_JS}
 ${VIEWER_JS}
 </script>
@@ -384,6 +409,87 @@ function aggregateMovByPeriod(rawMovWeeks, granularity){
   const periodKeysSorted = Array.from(byPeriod.keys()).sort();
   return { granularity, bySede, byPeriod: Array.from(byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })), periodKeysSorted, sedeNames: bySede.map(s => s.sedeName).sort() };
 }
+
+// Horas Extras (horas_extra_dias) — fuente diaria por empleado, mismo
+// calendario que Ventas (ventaPeriodKeyFor/ventaPeriodLabel) — puerto de
+// src/horasExtras/horasExtrasDashboardData.js.
+const LIMITE_SEMANAL_HORAS = 12;
+const UMBRAL_ALERTA_HORAS = 10;
+function horaExtraDelDia(row){ return (row.he || 0) + (row.hen || 0) + (row.hefd || 0) + (row.hefn || 0); }
+function evaluarAlertaHoras(h){ if (h > LIMITE_SEMANAL_HORAS) return 'rojo'; if (h >= UMBRAL_ALERTA_HORAS) return 'amarillo'; return 'verde'; }
+function aggregateHorasByEmpleado(rawHoras, granularity){
+  const accByEmpleado = new Map();
+  rawHoras.forEach(row => {
+    const id = row.empleadoId;
+    if (!accByEmpleado.has(id)) accByEmpleado.set(id, { info: { empleadoId: id, nombre: row.empleadoNombre, sedeName: row.sedeName, cargo: row.cargo }, lastFecha: null, periods: new Map() });
+    const entry = accByEmpleado.get(id);
+    if (!entry.lastFecha || row.fecha > entry.lastFecha) { entry.lastFecha = row.fecha; entry.info = { empleadoId: id, nombre: row.empleadoNombre, sedeName: row.sedeName, cargo: row.cargo }; }
+    const periodKey = ventaPeriodKeyFor(row.fecha, granularity);
+    if (!entry.periods.has(periodKey)) entry.periods.set(periodKey, { periodKey, horaExtra: 0, total: 0 });
+    const acc = entry.periods.get(periodKey);
+    acc.horaExtra += horaExtraDelDia(row);
+    acc.total += row.total || 0;
+  });
+  const byEmpleado = [], byPeriod = new Map();
+  accByEmpleado.forEach((entry, id) => {
+    const points = Array.from(entry.periods.values()).map(acc => ({ ...acc, ...entry.info, periodLabel: ventaPeriodLabel(acc.periodKey, granularity) })).sort((a, b) => a.periodKey < b.periodKey ? -1 : 1);
+    byEmpleado.push({ empleadoId: id, ...entry.info, points });
+    points.forEach(p => { if (!byPeriod.has(p.periodKey)) byPeriod.set(p.periodKey, []); byPeriod.get(p.periodKey).push(p); });
+  });
+  return { granularity, byEmpleado, periodKeysSorted: Array.from(byPeriod.keys()).sort() };
+}
+function aggregateHorasBySede(rawHoras, granularity){
+  const accBySede = new Map();
+  rawHoras.forEach(row => {
+    const sedeName = row.sedeName;
+    const periodKey = ventaPeriodKeyFor(row.fecha, granularity);
+    if (!accBySede.has(sedeName)) accBySede.set(sedeName, new Map());
+    const periods = accBySede.get(sedeName);
+    if (!periods.has(periodKey)) periods.set(periodKey, { periodKey, sedeName, horaExtra: 0 });
+    periods.get(periodKey).horaExtra += horaExtraDelDia(row);
+  });
+  const byPeriod = new Map();
+  accBySede.forEach(periods => {
+    Array.from(periods.values()).forEach(acc => {
+      const p = { ...acc, periodLabel: ventaPeriodLabel(acc.periodKey, granularity) };
+      if (!byPeriod.has(p.periodKey)) byPeriod.set(p.periodKey, []);
+      byPeriod.get(p.periodKey).push(p);
+    });
+  });
+  return { byPeriod, periodKeysSorted: Array.from(byPeriod.keys()).sort() };
+}
+// Última semana ISO ya COMPLETA dentro de los datos cargados — el periodo de
+// un reporte de RH casi nunca cierra en domingo, así que la última semana
+// calendario suele venir con solo 1-2 días y subestima la alerta.
+function lastCompleteWeekHoras(periodKeysSorted, maxFecha){
+  if (!maxFecha) return periodKeysSorted[periodKeysSorted.length - 1] || null;
+  for (let i = periodKeysSorted.length - 1; i >= 0; i--) {
+    const start = new Date(periodKeysSorted[i] + 'T00:00:00Z');
+    const end = new Date(start); end.setUTCDate(end.getUTCDate() + 6);
+    if (end.toISOString().slice(0, 10) <= maxFecha) return periodKeysSorted[i];
+  }
+  return periodKeysSorted[periodKeysSorted.length - 1] || null;
+}
+function computeAlertasHoras(rawHoras, sedeFilter){
+  const rows = sedeFilter ? rawHoras.filter(r => r.sedeName === sedeFilter) : rawHoras;
+  const data = aggregateHorasByEmpleado(rows, 'week');
+  const maxFecha = rows.reduce((max, r) => (!max || r.fecha > max ? r.fecha : max), null);
+  const lastWeek = lastCompleteWeekHoras(data.periodKeysSorted, maxFecha);
+  const alertas = data.byEmpleado.map(entry => {
+    const point = entry.points.find(p => p.periodKey === lastWeek);
+    const horaExtra = point ? point.horaExtra : 0;
+    return { ...entry, horaExtraSemana: horaExtra, nivel: evaluarAlertaHoras(horaExtra) };
+  }).sort((a, b) => b.horaExtraSemana - a.horaExtraSemana);
+  return { lastWeek, alertas };
+}
+function findTopEmpleadosHoras(rawHoras, n){
+  const acc = new Map();
+  rawHoras.forEach(row => {
+    if (!acc.has(row.empleadoId)) acc.set(row.empleadoId, { empleadoId: row.empleadoId, nombre: row.empleadoNombre, sedeName: row.sedeName, horaExtra: 0 });
+    acc.get(row.empleadoId).horaExtra += horaExtraDelDia(row);
+  });
+  return Array.from(acc.values()).sort((a, b) => b.horaExtra - a.horaExtra).slice(0, n);
+}
 `;
 
 const VIEWER_JS = `
@@ -537,6 +643,7 @@ function initFilters(){
   });
   sedeSel.addEventListener('change', () => { renderKpis(); refreshActiveView(); });
   el('filterBloque').addEventListener('change', refreshActiveView);
+  el('filterEmpleadoHoras').addEventListener('change', refreshActiveView);
   el('filterGranularidad').addEventListener('change', () => {
     recomputeData();
     refreshSedeOptions();
@@ -935,11 +1042,72 @@ function renderMermasDrilldown(bloque, sedeFilter){
   }).join('') || '<tr><td colspan="5" class="left">Sin productos con diferencia en este bloque esa semana.</td></tr>';
 }
 
+// "Horas Extras": junto a Mermas dentro del mismo dashboard unificado —
+// respeta el filtro de sede compartido (la granularidad NO, las alertas
+// siempre son semanales por ley) y tiene su propio selector de "Empleado".
+function viewHoras(){
+  destroyChart('horasTiempo'); destroyChart('horasRanking');
+  if (!RAW_HORAS.length) return;
+  const sedeFilter = el('filterSede').value;
+
+  const rowsInSede = sedeFilter ? RAW_HORAS.filter(r => r.sedeName === sedeFilter) : RAW_HORAS;
+  const empSel = el('filterEmpleadoHoras');
+  const prevEmp = empSel.value;
+  const empleados = Array.from(new Map(rowsInSede.map(r => [r.empleadoId, r.empleadoNombre])).entries());
+  empSel.innerHTML = '<option value="">Todos los empleados</option>' + empleados.map(([id, nombre]) => '<option value="' + id + '">' + nombre + '</option>').join('');
+  if (empleados.some(([id]) => id === prevEmp)) empSel.value = prevEmp;
+  const empleadoFilter = empSel.value;
+  const rows = empleadoFilter ? rowsInSede.filter(r => r.empleadoId === empleadoFilter) : rowsInSede;
+
+  const { lastWeek, alertas } = computeAlertasHoras(RAW_HORAS, sedeFilter);
+  const rojos = alertas.filter(a => a.nivel === 'rojo');
+  const amarillos = alertas.filter(a => a.nivel === 'amarillo');
+  const topEmpleado = alertas[0];
+
+  el('horasKpiGrid').innerHTML =
+    '<div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">' + new Set(rowsInSede.map(r => r.empleadoId)).size + '</div></div>' +
+    '<div class="kpi-card ' + (rojos.length ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">🔴 Pasados del límite (' + LIMITE_SEMANAL_HORAS + 'h/semana)</div><div class="kpi-value">' + rojos.length + '</div></div>' +
+    '<div class="kpi-card ' + (amarillos.length ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">🟡 Por pasarse (≥ ' + UMBRAL_ALERTA_HORAS + 'h/semana)</div><div class="kpi-value">' + amarillos.length + '</div></div>' +
+    '<div class="kpi-card"><div class="kpi-label">Más horas extra (última semana)</div><div class="kpi-value" style="font-size:15px">' + (topEmpleado ? topEmpleado.nombre + ' — ' + fmtNum(topEmpleado.horaExtraSemana) + 'h' : '—') + '</div></div>';
+
+  el('horasAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
+    const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
+    const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
+    return '<tr><td class="left">' + a.nombre + '</td><td class="left">' + a.sedeName + '</td><td class="left">' + (a.cargo || '—') + '</td><td class="' + cls + '">' + fmtNum(a.horaExtraSemana) + '</td><td>' + icon + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="left">Nadie en alerta en ' + (lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos') + '.</td></tr>';
+
+  const granularity = el('filterGranularidad').value;
+  const sedeData = aggregateHorasBySede(rows, granularity);
+  const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
+  const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
+  charts.horasTiempo = new Chart(el('chartHorasTiempo').getContext('2d'), {
+    type: 'line', data: { labels: tiempoLabels, datasets: [{ label: 'Horas extra', data: tiempoValues, borderColor: currentAccent(), backgroundColor: currentAccent(), tension: .25 }] },
+    options: chartOptions('Horas extra en el tiempo' + (sedeFilter ? ' — ' + sedeFilter : ''), null, fmtNum)
+  });
+
+  const top = findTopEmpleadosHoras(rows, 12);
+  const rankLabels = top.map(e => e.nombre), rankValues = top.map(e => e.horaExtra);
+  charts.horasRanking = new Chart(el('chartHorasRanking').getContext('2d'), {
+    type: 'bar', data: { labels: rankLabels, datasets: [{ data: rankValues, backgroundColor: rankValues.map(() => currentAccent()), borderRadius: 6 }] },
+    options: Object.assign(chartOptions('Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'y'), {})
+  });
+
+  const empData = aggregateHorasByEmpleado(rows, granularity);
+  const detalleRows = [];
+  empData.byEmpleado.forEach(entry => entry.points.forEach(p => detalleRows.push(p)));
+  detalleRows.sort((a, b) => a.periodKey < b.periodKey ? 1 : -1);
+  el('horasTableBody').innerHTML = detalleRows.map(r => {
+    const cls = r.horaExtra > LIMITE_SEMANAL_HORAS && granularity === 'week' ? 'diff-neg' : '';
+    return '<tr><td class="left">' + r.nombre + '</td><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td class="' + cls + '">' + fmtNum(r.horaExtra) + '</td><td>' + fmtNum(r.total) + '</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="left">Sin datos para este filtro.</td></tr>';
+}
+
 function refreshActiveView(){
   if (activeView === 'tiempo') viewTiempo();
   else if (activeView === 'sedes') viewSedes();
   else if (activeView === 'presupuesto') viewPresupuesto();
   else if (activeView === 'mermas') viewMermas();
+  else if (activeView === 'horas') viewHoras();
 }
 
 recomputeData();

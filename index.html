@@ -22,42 +22,40 @@
   </div>
 
   <div class="card mode-choice" id="modeChoiceCard">
-    <h2 style="margin-top:0">¿Qué quieres generar?</h2>
+    <h2 style="margin-top:0">¿Qué quieres hacer?</h2>
+
+    <button type="button" class="mode-featured" id="modeReportesBtn">
+      <span class="mode-eyebrow">📈 Panel principal</span>
+      <span class="mode-title">Reportes</span>
+      <span class="mode-desc">Margen, utilidad, ventas, mermas y horas extra de todas las sedes en un solo tablero — evolución semanal, mensual y anual, con alertas y todo el histórico guardado.</span>
+    </button>
+
+    <div class="mode-section-label">Cargar información</div>
     <div class="mode-grid">
       <button type="button" class="mode-option" id="modeBalanceBtn">
-        <span class="mode-eyebrow">📊 Nuevo</span>
+        <span class="mode-eyebrow">📊 Balance</span>
         <span class="mode-title">Balance Semanal</span>
         <span class="mode-desc">Carga el reporte de Tecnocarnes de una sede y obtén su margen y utilidad de la semana, calculados y guardados en el historial.</span>
       </button>
-      <div class="mode-divider" aria-hidden="true"></div>
       <button type="button" class="mode-option" id="modeMovimientosBtn">
-        <span class="mode-eyebrow">📋 Ya disponible</span>
+        <span class="mode-eyebrow">📋 Mermas</span>
         <span class="mode-title">Tabla de Movimientos</span>
         <span class="mode-desc">Carga el Excel semanal de una o varias sedes y obtén el conteo por producto: Teórico, Disponible y Diferencia KL, listo para auditar.</span>
       </button>
-      <div class="mode-divider" aria-hidden="true"></div>
-      <button type="button" class="mode-option" id="modeReportesBtn">
-        <span class="mode-eyebrow">📈 Nuevo</span>
-        <span class="mode-title">Reportes</span>
-        <span class="mode-desc">Evolución de margen y utilidad por sede — semanal, mensual y anual, con todo el histórico guardado.</span>
-      </button>
-      <div class="mode-divider" aria-hidden="true"></div>
-      <button type="button" class="mode-option" id="modeAuditoriasBtn">
-        <span class="mode-eyebrow">📋 Nuevo</span>
-        <span class="mode-title">Auditorías PDV</span>
-        <span class="mode-desc">Checklist de auditoría de punto de venta — presentación, limpieza, cadena de frío, infraestructura, normativo, inventario, operación y seguridad.</span>
-      </button>
-      <div class="mode-divider" aria-hidden="true"></div>
       <button type="button" class="mode-option" id="modeVentasBtn">
-        <span class="mode-eyebrow">💰 Nuevo</span>
+        <span class="mode-eyebrow">💰 Ventas</span>
         <span class="mode-title">Ventas Diarias</span>
         <span class="mode-desc">Carga el reporte de ventas por día de una sede (se puede repetir a diario) para comparar venta, presupuesto y proyección entre puntos.</span>
       </button>
-      <div class="mode-divider" aria-hidden="true"></div>
       <button type="button" class="mode-option" id="modeHorasExtrasBtn">
-        <span class="mode-eyebrow">⏱ Nuevo</span>
+        <span class="mode-eyebrow">⏱ Horas Extras</span>
         <span class="mode-title">Horas Extras</span>
         <span class="mode-desc">Carga el PDF semanal de Recursos Humanos (Liquidación Detallada, una o varias sedes) para controlar horas extra por empleado y recibir alertas por límite.</span>
+      </button>
+      <button type="button" class="mode-option" id="modeAuditoriasBtn">
+        <span class="mode-eyebrow">🗒 Auditorías</span>
+        <span class="mode-title">Auditorías PDV</span>
+        <span class="mode-desc">Checklist de auditoría de punto de venta — presentación, limpieza, cadena de frío, infraestructura, normativo, inventario, operación y seguridad.</span>
       </button>
     </div>
   </div>
@@ -247,6 +245,8 @@
         </div>
         <div class="banner info hidden-block" id="horasSaveBanner"></div>
       </div>
+
+      <p class="hint" style="margin-top:18px">Las alertas, gráficos y comparativos ya están en la pestaña "📊 Informes" → botón "⏱ Horas Extras".</p>
     </div>
   </div>
 
@@ -262,7 +262,6 @@
       <button class="tab-btn" id="reportesTypeMovimientosBtn">📋 Tabla de Movimientos</button>
       <button class="tab-btn" id="reportesTypeAuditoriasBtn">🗒 Auditorías</button>
       <button class="tab-btn" id="reportesTypeVentasBtn">🎯 Presupuesto</button>
-      <button class="tab-btn" id="reportesTypeHorasBtn">⏱ Horas Extras</button>
     </div>
 
     <div class="card" id="reportesCard">
@@ -308,6 +307,7 @@
           <button type="button" class="tab-btn" data-subview="sedes">🏢 Comparativa entre sedes</button>
           <button type="button" class="tab-btn" data-subview="presupuesto">🎯 Presupuesto</button>
           <button type="button" class="tab-btn" data-subview="mermas">📋 Mermas</button>
+          <button type="button" class="tab-btn" data-subview="horas">⏱ Horas Extras</button>
         </div>
 
         <div class="dash-charts" id="reportesTiempoView">
@@ -373,6 +373,38 @@
                   <tbody id="reportesMermasTableBody"></tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hidden-block" id="reportesHorasView">
+          <div class="dash-filters">
+            <select id="horasReportesEmpleadoFilter"></select>
+          </div>
+          <div class="kpi-grid" id="horasReportesKpiGrid"></div>
+
+          <div class="dash-table-wrap">
+            <div class="dash-table-title">Alertas — última semana completa con datos</div>
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
+                <tbody id="horasAlertasTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-charts">
+            <div class="chart-box"><canvas id="chartHorasTiempo"></canvas></div>
+            <div class="chart-box"><canvas id="chartHorasRanking"></canvas></div>
+          </div>
+
+          <div class="dash-table-wrap">
+            <div class="dash-table-title">Detalle por periodo</div>
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Periodo</th><th>Horas extra</th><th>Total trabajado</th></tr></thead>
+                <tbody id="horasReportesTableBody"></tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -480,56 +512,6 @@
       <p class="hint" id="ventReportesLoadingHint" style="margin-top:18px">Cargando historial…</p>
       <div class="banner error hidden-block" id="ventReportesErrorBanner"></div>
       <p class="hint">El comparativo contra la meta y la proyección de cierre del mes ya están unificados en la pestaña "📊 Informes" → botón "🎯 Presupuesto".</p>
-    </div>
-
-    <div class="card hidden-block" id="reportesHorasCard">
-      <div class="dash-header-row">
-        <div>
-          <div class="dash-title">Reportes de Horas Extras</div>
-          <div class="dash-sub">Control por empleado — alerta roja si supera 12 h extra en la semana, amarilla desde 10 h. Sube el PDF semanal desde "⏱ Horas Extras" en el inicio.</div>
-        </div>
-        <button class="btn-secondary" id="horasReportesDownloadBtn" disabled>⬇ Informe interactivo (HTML)</button>
-      </div>
-      <p class="hint" id="horasReportesLoadingHint">Cargando historial…</p>
-      <div class="banner error hidden-block" id="horasReportesErrorBanner"></div>
-
-      <div id="reportesHorasView" class="hidden-block">
-        <div class="dash-filters">
-          <select id="horasReportesSedeFilter"></select>
-          <select id="horasReportesEmpleadoFilter"></select>
-          <select id="horasReportesGranularity">
-            <option value="week" selected>Semanal</option>
-            <option value="month">Mensual</option>
-            <option value="year">Anual</option>
-          </select>
-        </div>
-        <div class="kpi-grid" id="horasReportesKpiGrid"></div>
-
-        <div class="dash-table-wrap">
-          <div class="dash-table-title">Alertas — última semana con datos</div>
-          <div class="table-scroll">
-            <table class="dash-table">
-              <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
-              <tbody id="horasAlertasTableBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="dash-charts">
-          <div class="chart-box"><canvas id="chartHorasTiempo"></canvas></div>
-          <div class="chart-box"><canvas id="chartHorasRanking"></canvas></div>
-        </div>
-
-        <div class="dash-table-wrap">
-          <div class="dash-table-title">Detalle por periodo</div>
-          <div class="table-scroll">
-            <table class="dash-table">
-              <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Periodo</th><th>Horas extra</th><th>Total trabajado</th></tr></thead>
-              <tbody id="horasReportesTableBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 
