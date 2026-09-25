@@ -63,7 +63,7 @@ import { parsePdfEmpleados } from './horasExtras/horasExtrasPdfLoader.js';
 import * as horasExtrasApi from './horasExtras/horasExtrasApi.js';
 import {
   aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
-  computeAlertas as computeHorasAlertas, findTopEmpleados, horaExtraDelDia, LIMITE_SEMANAL, UMBRAL_ALERTA
+  computeAlertas as computeHorasAlertas, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, LIMITE_SEMANAL, UMBRAL_ALERTA
 } from './horasExtras/horasExtrasDashboardData.js';
 
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
@@ -785,6 +785,8 @@ let reportesSelectedPeriods = null; // Set<periodKey> | null (null = todos los p
 // necesita su propia selección para no mezclar periodos de una fuente con
 // los de la otra (ver reportesActivePeriodsGet/Set más abajo).
 let reportesMermasSelectedPeriods = null;
+// Horas Extras también tiene su propio calendario (horas_extra_dias, día a día) — para poder ver quién hizo más horas extra en la semana elegida.
+let reportesHorasSelectedPeriods = null;
 // Sub-vista activa del dashboard unificado: 'tiempo' | 'sedes' | 'ranking' | 'presupuesto'.
 // "presupuesto" ignora el selector de métrica/granularidad (siempre es venta
 // real del mes en curso contra la meta) — las otras 3 sí dependen de ellos.
@@ -882,7 +884,7 @@ function renderReportes() {
     : ((data.byPeriod.get(k) || [])[0]?.periodLabel || k);
   // Mermas puebla el mismo popover con SU PROPIO calendario de periodos
   // (ver renderReportesMermasView) — no pisarlo aquí con los de Balance/Ventas.
-  if (reportesSubView !== 'mermas') renderReportesPeriodChips(allPeriodKeys, periodLabelOf, granularity);
+  if (reportesSubView !== 'mermas' && reportesSubView !== 'horas') renderReportesPeriodChips(allPeriodKeys, periodLabelOf, granularity);
   const selectedSet = reportesSelectedPeriods || new Set(allPeriodKeys);
   const periodKeysInScope = allPeriodKeys.filter(k => selectedSet.has(k));
 
@@ -971,6 +973,8 @@ function switchReportesSubView(view) {
   el('reportesPresupuestoView').classList.toggle('hidden-block', view !== 'presupuesto');
   el('reportesMermasView').classList.toggle('hidden-block', view !== 'mermas');
   el('reportesHorasView').classList.toggle('hidden-block', view !== 'horas');
+  // El selector Margen/Utilidad/Ventas solo aplica a Serie de tiempo y Comparativa entre sedes.
+  el('reportesMetrica').classList.toggle('hidden-block', view === 'presupuesto' || view === 'mermas' || view === 'horas');
   if (reportesWeeks) renderReportes();
 }
 
@@ -985,8 +989,8 @@ function switchReportesSubView(view) {
 // debe ir a una variable distinta según la sub-vista activa: Mermas tiene su
 // propio calendario de periodos (movimientos_weeks), separado del de
 // Balance/Ventas — mezclarlos en la misma Set rompería a ambos lados.
-function reportesActivePeriodsGet() { return reportesSubView === 'mermas' ? reportesMermasSelectedPeriods : reportesSelectedPeriods; }
-function reportesActivePeriodsSet(v) { if (reportesSubView === 'mermas') reportesMermasSelectedPeriods = v; else reportesSelectedPeriods = v; }
+function reportesActivePeriodsGet() { return reportesSubView === 'mermas' ? reportesMermasSelectedPeriods : reportesSubView === 'horas' ? reportesHorasSelectedPeriods : reportesSelectedPeriods; }
+function reportesActivePeriodsSet(v) { if (reportesSubView === 'mermas') reportesMermasSelectedPeriods = v; else if (reportesSubView === 'horas') reportesHorasSelectedPeriods = v; else reportesSelectedPeriods = v; }
 
 function renderReportesPeriodChips(periodKeys, periodLabelOf, granularity) {
   const list = el('reportesPeriodList');
@@ -2194,7 +2198,14 @@ function horasCorteLabel(rows) {
 function renderReportesHorasView(sedeFilter, granularity) {
   if (!horasExtrasAllDias || !horasExtrasAllDias.length) return;
 
-  const rowsInSede = sedeFilter ? horasExtrasAllDias.filter(r => r.sede_name === sedeFilter) : horasExtrasAllDias;
+  // Calendario propio (el botón "📅 Fechas"): con un solo mes/año cargado se baja a semanas.
+  let gran = granularity;
+  let cal = aggregateHorasBySede(horasExtrasAllDias, gran);
+  if (cal.periodKeysSorted.length < 2 && gran !== 'week') { gran = 'week'; cal = aggregateHorasBySede(horasExtrasAllDias, gran); }
+  renderReportesPeriodChips(cal.periodKeysSorted, k => (cal.byPeriod.get(k) || [])[0]?.periodLabel || k, gran);
+  const selectedSet = reportesHorasSelectedPeriods || new Set(cal.periodKeysSorted);
+  const scopedAll = horasExtrasAllDias.filter(r => selectedSet.has(horasPeriodKeyFor(r.fecha, gran)));
+  const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sede_name === sedeFilter) : scopedAll;
   const empleadoNames = Array.from(new Map(rowsInSede.map(r => [r.empleado_id, r.empleado_nombre])).entries());
   const empSel = el('horasReportesEmpleadoFilter');
   const prevEmp = empSel.value;
@@ -2204,7 +2215,7 @@ function renderReportesHorasView(sedeFilter, granularity) {
 
   const rows = empleadoFilter ? rowsInSede.filter(r => r.empleado_id === empleadoFilter) : rowsInSede;
 
-  const { lastWeek, alertas } = computeHorasAlertas(horasExtrasAllDias, sedeFilter);
+  const { lastWeek, alertas } = computeHorasAlertas(scopedAll, sedeFilter);
   const corte = horasCorteLabel(horasExtrasAllDias);
   const rojos = alertas.filter(a => a.nivel === 'rojo');
   const amarillos = alertas.filter(a => a.nivel === 'amarillo');
@@ -2214,8 +2225,9 @@ function renderReportesHorasView(sedeFilter, granularity) {
     <div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">${new Set(rowsInSede.map(r => r.empleado_id)).size}</div></div>
     <div class="kpi-card ${rojos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🔴 Pasados del límite (${LIMITE_SEMANAL}h/semana)</div><div class="kpi-value">${rojos.length}</div></div>
     <div class="kpi-card ${amarillos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🟡 Por pasarse (≥ ${UMBRAL_ALERTA}h/semana)</div><div class="kpi-value">${amarillos.length}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Más horas extra (última semana)</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
+    <div class="kpi-card"><div class="kpi-label">Más horas extra — ${lastWeek ? 'semana del ' + lastWeek : 'última semana'}</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
 
+  el('horasAlertasTitle').textContent = 'Alertas — ' + (lastWeek ? 'semana del ' + lastWeek : 'última semana completa con datos');
   el('horasAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
     const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
@@ -2223,10 +2235,7 @@ function renderReportesHorasView(sedeFilter, granularity) {
   }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos'}.</td></tr>`;
 
   // "En el tiempo": suma de horas extra por periodo, todas las sedes/empleados en el alcance filtrado.
-  // Con un solo mes/año cargado la serie quedaba en un único punto — se baja a semanas.
-  let tiempoGran = granularity;
-  let sedeData = aggregateHorasBySede(rows, tiempoGran);
-  if (sedeData.periodKeysSorted.length < 2 && tiempoGran !== 'week') { tiempoGran = 'week'; sedeData = aggregateHorasBySede(rows, tiempoGran); }
+  const sedeData = aggregateHorasBySede(rows, gran);
   const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
   if (chartHorasTiempo) chartHorasTiempo.destroy();
@@ -2246,12 +2255,12 @@ function renderReportesHorasView(sedeFilter, granularity) {
   });
 
   // Detalle por periodo.
-  const empData = aggregateHorasByEmpleado(rows, granularity);
+  const empData = aggregateHorasByEmpleado(rows, gran);
   const detalleRows = [];
   empData.byEmpleado.forEach(entry => entry.points.forEach(p => detalleRows.push({ ...p })));
   detalleRows.sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
   el('horasReportesTableBody').innerHTML = detalleRows.map(r => {
-    const cls = r.horaExtra > LIMITE_SEMANAL && granularity === 'week' ? 'diff-neg' : '';
+    const cls = r.horaExtra > LIMITE_SEMANAL && gran === 'week' ? 'diff-neg' : '';
     return `<tr><td class="left">${escapeHtml(r.nombre)}</td><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td class="${cls}">${fmt(r.horaExtra)}</td><td>${fmt(r.total)}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="left hint">Sin datos para este filtro.</td></tr>';
 }
@@ -2322,7 +2331,7 @@ el('balanceDownloadReportBtn').addEventListener('click', downloadBalanceReport);
 el('modeReportesBtn').addEventListener('click', () => switchFlow('reportes'));
 el('backFromReportesBtn').addEventListener('click', () => switchFlow('choice'));
 el('reportesMetrica').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
-el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; renderReportes(); });
+el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; reportesHorasSelectedPeriods = null; renderReportes(); });
 el('reportesSedeFilter').addEventListener('change', renderReportes);
 el('reportesDownloadBtn').addEventListener('click', () => downloadReportesReport());
 el('horasDownloadBtn').addEventListener('click', () => downloadReportesReport('horas'));

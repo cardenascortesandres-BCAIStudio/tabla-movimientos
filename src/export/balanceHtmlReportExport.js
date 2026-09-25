@@ -159,7 +159,7 @@ ${VIEWER_CSS}
   <section class="view-panel hidden-block" id="view-horas">
     <div class="kpi-grid" id="horasKpiGrid" style="margin-bottom:16px"></div>
     <table class="dtable" id="horasAlertasTable" style="margin-bottom:16px;">
-      <caption style="text-align:left;font-weight:700;margin-bottom:8px;">Alertas — última semana completa con datos</caption>
+      <caption id="horasAlertasCaption" style="text-align:left;font-weight:700;margin-bottom:8px;">Alertas — última semana completa con datos</caption>
       <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
       <tbody id="horasAlertasTableBody"></tbody>
     </table>
@@ -552,6 +552,7 @@ function initTabs(){
       document.querySelectorAll('.view-panel').forEach(p => p.classList.add('hidden-block'));
       el('view-' + v).classList.remove('hidden-block');
       activeView = v;
+      updateFilterVisibility();
       refreshActiveView();
     });
   });
@@ -580,9 +581,23 @@ let selectedPeriods = null; // Set<periodKey> | null (null = todos) — Balance/
 // necesita su propia selección para no mezclar periodos de una fuente con
 // los de la otra.
 let selectedPeriodsMermas = null;
-function periodSourceData(){ return activeView === 'mermas' ? currentMovData : activeSource(); }
-function activePeriodsGet(){ return activeView === 'mermas' ? selectedPeriodsMermas : selectedPeriods; }
-function activePeriodsSet(v){ if (activeView === 'mermas') selectedPeriodsMermas = v; else selectedPeriods = v; }
+// Horas Extras: calendario propio (horas_extra_dias, día a día) — con un solo mes/año cargado baja a semanas.
+let selectedPeriodsHoras = null;
+function horasPeriodData(){
+  let g = el('filterGranularidad').value;
+  let d = aggregateHorasBySede(RAW_HORAS, g);
+  if (d.periodKeysSorted.length < 2 && g !== 'week') { g = 'week'; d = aggregateHorasBySede(RAW_HORAS, g); }
+  return { granularity: g, periodKeysSorted: d.periodKeysSorted, byPeriod: Array.from(d.byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })) };
+}
+function periodSourceData(){ return activeView === 'mermas' ? currentMovData : activeView === 'horas' ? horasPeriodData() : activeSource(); }
+function activePeriodsGet(){ return activeView === 'mermas' ? selectedPeriodsMermas : activeView === 'horas' ? selectedPeriodsHoras : selectedPeriods; }
+function activePeriodsSet(v){ if (activeView === 'mermas') selectedPeriodsMermas = v; else if (activeView === 'horas') selectedPeriodsHoras = v; else selectedPeriods = v; }
+// Qué botones de filtro aplican en cada vista: la métrica (Margen/Utilidad/Ventas) solo en Serie de
+// tiempo y Comparativa; el selector de empleado no aplica a Presupuesto ni a Mermas.
+function updateFilterVisibility(){
+  el('filterMetrica').classList.toggle('hidden-block', activeView === 'presupuesto' || activeView === 'mermas' || activeView === 'horas');
+  el('filterEmpleadoHoras').classList.toggle('hidden-block', activeView === 'presupuesto' || activeView === 'mermas');
+}
 
 function recomputeData(){
   const granularity = el('filterGranularidad').value;
@@ -591,6 +606,7 @@ function recomputeData(){
   currentMovData = aggregateMovByPeriod(RAW_MOV_WEEKS, granularity);
   selectedPeriods = null;
   selectedPeriodsMermas = null;
+  selectedPeriodsHoras = null;
   renderPeriodPopover();
 }
 
@@ -1051,7 +1067,12 @@ function viewHoras(){
   if (!RAW_HORAS.length) return;
   const sedeFilter = el('filterSede').value;
 
-  const rowsInSede = sedeFilter ? RAW_HORAS.filter(r => r.sedeName === sedeFilter) : RAW_HORAS;
+  renderPeriodPopover();
+  const calH = horasPeriodData();
+  const gran = calH.granularity;
+  const scopeSet = new Set(periodsInScope());
+  const scopedAll = RAW_HORAS.filter(r => scopeSet.has(ventaPeriodKeyFor(r.fecha, gran)));
+  const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sedeName === sedeFilter) : scopedAll;
   const empSel = el('filterEmpleadoHoras');
   const prevEmp = empSel.value;
   const empleados = Array.from(new Map(rowsInSede.map(r => [r.empleadoId, r.empleadoNombre])).entries());
@@ -1060,7 +1081,7 @@ function viewHoras(){
   const empleadoFilter = empSel.value;
   const rows = empleadoFilter ? rowsInSede.filter(r => r.empleadoId === empleadoFilter) : rowsInSede;
 
-  const { lastWeek, alertas } = computeAlertasHoras(RAW_HORAS, sedeFilter);
+  const { lastWeek, alertas } = computeAlertasHoras(scopedAll, sedeFilter);
   const maxF = RAW_HORAS.reduce((m, r) => (!m || r.fecha > m ? r.fecha : m), null);
   const MES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const dC = maxF ? new Date(String(maxF).slice(0, 10) + 'T00:00:00Z') : null;
@@ -1073,18 +1094,17 @@ function viewHoras(){
     '<div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">' + new Set(rowsInSede.map(r => r.empleadoId)).size + '</div></div>' +
     '<div class="kpi-card ' + (rojos.length ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">🔴 Pasados del límite (' + LIMITE_SEMANAL_HORAS + 'h/semana)</div><div class="kpi-value">' + rojos.length + '</div></div>' +
     '<div class="kpi-card ' + (amarillos.length ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">🟡 Por pasarse (≥ ' + UMBRAL_ALERTA_HORAS + 'h/semana)</div><div class="kpi-value">' + amarillos.length + '</div></div>' +
-    '<div class="kpi-card"><div class="kpi-label">Más horas extra (última semana)</div><div class="kpi-value" style="font-size:15px">' + (topEmpleado ? topEmpleado.nombre + ' — ' + fmtNum(topEmpleado.horaExtraSemana) + 'h' : '—') + '</div></div>';
+    '<div class="kpi-card"><div class="kpi-label">Más horas extra — ' + (lastWeek ? 'semana del ' + lastWeek : 'última semana') + '</div><div class="kpi-value" style="font-size:15px">' + (topEmpleado ? topEmpleado.nombre + ' — ' + fmtNum(topEmpleado.horaExtraSemana) + 'h' : '—') + '</div></div>';
 
+  el('horasAlertasCaption').textContent = 'Alertas — ' + (lastWeek ? 'semana del ' + lastWeek : 'última semana completa con datos');
   el('horasAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
     const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
     return '<tr><td class="left">' + a.nombre + '</td><td class="left">' + a.sedeName + '</td><td class="left">' + (a.cargo || '—') + '</td><td class="' + cls + '">' + fmtNum(a.horaExtraSemana) + '</td><td>' + icon + '</td></tr>';
   }).join('') || '<tr><td colspan="5" class="left">Nadie en alerta en ' + (lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos') + '.</td></tr>';
 
-  const granularity = el('filterGranularidad').value;
-  let tiempoGran = granularity;
-  let sedeData = aggregateHorasBySede(rows, tiempoGran);
-  if (sedeData.periodKeysSorted.length < 2 && tiempoGran !== 'week') { tiempoGran = 'week'; sedeData = aggregateHorasBySede(rows, tiempoGran); }
+  const granularity = gran;
+  const sedeData = aggregateHorasBySede(rows, granularity);
   const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
   charts.horasTiempo = new Chart(el('chartHorasTiempo').getContext('2d'), {
@@ -1125,5 +1145,6 @@ initMermasSubTabs();
 initFilters();
 renderKpis();
 refreshActiveView();
+updateFilterVisibility();
 if (INITIAL_VIEW !== 'tiempo') { const b = document.querySelector('.view-tab[data-view="' + INITIAL_VIEW + '"]'); if (b) b.click(); }
 `;
