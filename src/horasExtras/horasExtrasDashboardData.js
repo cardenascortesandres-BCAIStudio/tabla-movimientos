@@ -40,8 +40,9 @@ export function aggregateByEmpleado(diaRows, granularity = 'week') {
       entry.info = { empleadoId, nombre: row.empleado_nombre, sedeName: row.sede_name, cargo: row.cargo };
     }
     const periodKey = periodKeyFor(row.fecha, granularity);
-    if (!entry.periods.has(periodKey)) entry.periods.set(periodKey, { periodKey, horaExtra: 0, total: 0, dias: 0 });
+    if (!entry.periods.has(periodKey)) entry.periods.set(periodKey, { periodKey, horaExtra: 0, he: 0, hen: 0, hefd: 0, hefn: 0, total: 0, dias: 0 });
     const acc = entry.periods.get(periodKey);
+    acc.he += Number(row.he) || 0; acc.hen += Number(row.hen) || 0; acc.hefd += Number(row.hefd) || 0; acc.hefn += Number(row.hefn) || 0;
     acc.horaExtra += horaExtraDelDia(row);
     acc.total += Number(row.total) || 0;
     acc.dias += 1;
@@ -146,4 +147,21 @@ export function findTopEmpleados(diaRows, n = 10) {
     acc.get(row.empleado_id).horaExtra += horaExtraDelDia(row);
   });
   return Array.from(acc.values()).sort((a, b) => b.horaExtra - a.horaExtra).slice(0, n);
+}
+
+// Tipos de hora que trae el PDF de RH. Los 4 primeros son HORA EXTRA (los que
+// cuentan contra el límite); el resto son horas ordinarias/recargos de la jornada.
+export const TIPOS_HORA_EXTRA = [['he', 'Extra diurna'], ['hen', 'Extra nocturna'], ['hefd', 'Extra festiva diurna'], ['hefn', 'Extra festiva nocturna']];
+export const TIPOS_HORA_OTROS = [['hdo', 'Ordinarias diurnas'], ['rn', 'Recargo nocturno'], ['rndyf', 'Recargo nocturno dominical/festivo'], ['dom', 'Dominical'], ['d', 'Descanso'], ['f', 'Festivo'], ['comida', 'Comida']];
+
+// Total de cada tipo de hora en un conjunto de filas diarias (+ extra total y horas trabajadas).
+export function sumDesglose(rows) {
+  const out = { extra: 0, total: 0 };
+  [...TIPOS_HORA_EXTRA, ...TIPOS_HORA_OTROS].forEach(([k]) => { out[k] = 0; });
+  rows.forEach((r) => {
+    [...TIPOS_HORA_EXTRA, ...TIPOS_HORA_OTROS].forEach(([k]) => { out[k] += Number(r[k]) || 0; });
+    out.total += Number(r.total) || 0;
+  });
+  out.extra = out.he + out.hen + out.hefd + out.hefn;
+  return out;
 }

@@ -63,7 +63,7 @@ import { parsePdfEmpleados } from './horasExtras/horasExtrasPdfLoader.js';
 import * as horasExtrasApi from './horasExtras/horasExtrasApi.js';
 import {
   aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
-  computeAlertas as computeHorasAlertas, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, LIMITE_SEMANAL, UMBRAL_ALERTA
+  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, LIMITE_SEMANAL, UMBRAL_ALERTA
 } from './horasExtras/horasExtrasDashboardData.js';
 
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
@@ -2233,7 +2233,7 @@ function renderReportesHorasView(sedeFilter, granularity) {
   el('horasAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
     const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
-    return `<tr><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
+    return `<tr class="row-click" data-emp="${escapeHtml(a.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
   }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos'}.</td></tr>`;
 
   // "En el tiempo": suma de horas extra por periodo, todas las sedes/empleados en el alcance filtrado.
@@ -2253,7 +2253,7 @@ function renderReportesHorasView(sedeFilter, granularity) {
   if (chartHorasRanking) chartHorasRanking.destroy();
   chartHorasRanking = new Chart(el('chartHorasRanking').getContext('2d'), {
     type: 'bar', data: { labels: rankLabels, datasets: [{ data: rankValues, backgroundColor: chartColors(rankValues, 'reportesView'), borderRadius: 6 }] },
-    options: Object.assign(dashboardChartOptions(['Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'reportesView'), { indexAxis: 'y' })
+    options: Object.assign(dashboardChartOptions(['Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'reportesView'), { indexAxis: 'y', onClick: (evt, els) => { if (els.length) { horasEmpleadoSel = top[els[0].index].empleadoId; renderHorasEmpleadoDetalle(); el('horasEmpleadoDetalle').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } } })
   });
 
   // Detalle por periodo.
@@ -2263,9 +2263,38 @@ function renderReportesHorasView(sedeFilter, granularity) {
   detalleRows.sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
   el('horasReportesTableBody').innerHTML = detalleRows.map(r => {
     const cls = r.horaExtra > LIMITE_SEMANAL && gran === 'week' ? 'diff-neg' : '';
-    return `<tr><td class="left">${escapeHtml(r.nombre)}</td><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td class="${cls}">${fmt(r.horaExtra)}</td><td>${fmt(r.total)}</td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="left hint">Sin datos para este filtro.</td></tr>';
+    return `<tr class="row-click" data-emp="${escapeHtml(r.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(r.nombre)}</td><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td class="${cls}"><b>${fmt(r.horaExtra)}</b></td><td>${fmt(r.total)}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="left hint">Sin datos para este filtro.</td></tr>';
+  horasCtx = { scopedAll, gran };
+  renderHorasEmpleadoDetalle();
 }
+
+// Al hacer clic en una persona (alertas, detalle o ranking): desglose de a qué
+// corresponde cada hora (diurna, nocturna, festiva...) dentro de las fechas elegidas.
+let horasEmpleadoSel = null, horasCtx = null;
+function renderHorasEmpleadoDetalle() {
+  const box = el('horasEmpleadoDetalle');
+  const rows = (horasEmpleadoSel && horasCtx) ? horasCtx.scopedAll.filter(r => r.empleado_id === horasEmpleadoSel) : [];
+  if (!rows.length) { box.classList.add('hidden-block'); return; }
+  const last = rows.reduce((m, r) => (String(r.fecha) > String(m.fecha) ? r : m), rows[0]);
+  const t = sumDesglose(rows);
+  const fila = ([k, label]) => `<tr><td class="left">${label}</td><td>${fmt(t[k])}</td></tr>`;
+  const dias = rows.slice().sort((a, b) => (String(a.fecha) < String(b.fecha) ? -1 : 1)).map(r => {
+    const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
+    const nom = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getUTCDay()];
+    const estado = r.estado_dia === 'inasistencia' ? 'Inasistencia' : r.estado_dia === 'descanso' ? 'Descanso' : '';
+    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div class="dash-table-title">Detalle de ${escapeHtml(last.empleado_nombre)} — ${escapeHtml(last.sede_name)}${last.cargo ? ' · ' + escapeHtml(last.cargo) : ''} <button type="button" class="btn-tiny" id="horasEmpleadoCerrar" style="float:right">✕ Cerrar</button></div>
+    <div class="dash-charts">
+      <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_EXTRA.map(fila).join('')}<tr><td class="left"><b>Total general horas extra</b></td><td><b>${fmt(t.extra)}</b></td></tr></tbody></table></div>
+      <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_OTROS.map(fila).join('')}<tr><td class="left"><b>Total trabajado</b></td><td><b>${fmt(t.total)}</b></td></tr></tbody></table></div>
+    </div>
+    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
+  box.classList.remove('hidden-block');
+  el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; renderHorasEmpleadoDetalle(); });
+}
+
 
 // ---------------- Modo claro/oscuro (paneles tipo dashboard) ----------------
 // Los 6 paneles con fondo oscuro ("estilo Power BI") son los únicos oscuros
@@ -2373,6 +2402,15 @@ el('backFromHorasExtrasBtn').addEventListener('click', () => switchFlow('choice'
 wireMultiFileDropzone('horasDropzone', 'horasFileInput', horasUploader.handleFiles);
 el('horasSaveBtn').addEventListener('click', horasUploader.saveAll);
 el('horasReportesEmpleadoFilter').addEventListener('change', renderReportes);
+for (const id of ['horasAlertasTableBody', 'horasReportesTableBody']) {
+  el(id).addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-emp]');
+    if (!tr) return;
+    horasEmpleadoSel = tr.dataset.emp;
+    renderHorasEmpleadoDetalle();
+    el('horasEmpleadoDetalle').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+}
 
 el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
 initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodAllBtn', 'reportesPeriodNoneBtn');
