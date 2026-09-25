@@ -1213,7 +1213,7 @@ function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInSc
 // si el usuario acaba de cargar algo nuevo desde otra pantalla sin volver a
 // entrar a Informes, esas variables podían quedar desactualizadas y el
 // informe descargado no reflejaba lo último guardado.
-async function downloadReportesReport() {
+async function downloadReportesReport(initialView) {
   if (!reportesWeeks) return;
   const btn = el('reportesDownloadBtn');
   const originalText = btn.textContent;
@@ -1227,7 +1227,7 @@ async function downloadReportesReport() {
       horasExtrasApi.getAllDias().catch(() => ({ dias: horasExtrasAllDias || [] }))
     ]);
     reportesWeeks = weeks || reportesWeeks;
-    const html = buildBalanceReportHtml(reportesWeeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, {});
+    const html = buildBalanceReportHtml(reportesWeeks, diasResult.dias || [], presResult.presupuestos || [], movResult.weeks || [], horasResult.dias || [], chartJsRawSource, { initialView: typeof initialView === 'string' ? initialView : reportesSubView });
     downloadBlob(html, 'reportes_brangus.html', 'text/html');
   } finally {
     btn.disabled = false; btn.textContent = originalText;
@@ -2312,7 +2312,8 @@ el('backFromReportesBtn').addEventListener('click', () => switchFlow('choice'));
 el('reportesMetrica').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
 el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; renderReportes(); });
 el('reportesSedeFilter').addEventListener('change', renderReportes);
-el('reportesDownloadBtn').addEventListener('click', downloadReportesReport);
+el('reportesDownloadBtn').addEventListener('click', () => downloadReportesReport());
+el('horasDownloadBtn').addEventListener('click', () => downloadReportesReport('horas'));
 document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => {
   btn.addEventListener('click', () => switchReportesSubView(btn.dataset.subview));
 });

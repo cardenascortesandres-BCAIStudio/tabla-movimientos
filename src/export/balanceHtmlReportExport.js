@@ -188,6 +188,7 @@ const RAW_VENTAS = ${ventasJson};
 const RAW_PRESUPUESTOS = ${presupuestosJson};
 const RAW_MOV_WEEKS = ${movJson};
 const RAW_HORAS = ${horasJson};
+const INITIAL_VIEW = ${JSON.stringify(meta?.initialView || 'tiempo')};
 ${AGG_JS}
 ${VIEWER_JS}
 </script>
@@ -1118,4 +1119,5 @@ initMermasSubTabs();
 initFilters();
 renderKpis();
 refreshActiveView();
+if (INITIAL_VIEW !== 'tiempo') { const b = document.querySelector('.view-tab[data-view="' + INITIAL_VIEW + '"]'); if (b) b.click(); }
 `;
