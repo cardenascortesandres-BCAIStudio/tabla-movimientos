@@ -2183,6 +2183,14 @@ let chartHorasTiempo, chartHorasRanking;
 // renderReportesMermasView: respeta el filtro de sede compartido (el de
 // granularidad NO, porque las alertas siempre son semanales por ley) y
 // tiene su propio selector de "Empleado".
+// Último día real con horas extra cargadas — "con qué corte" está el informe.
+function horasCorteLabel(rows) {
+  const max = rows.reduce((m, r) => { const f = String(r.fecha).slice(0, 10); return !m || f > m ? f : m; }, null);
+  if (!max) return '—';
+  const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const d = new Date(max + 'T00:00:00Z');
+  return d.getUTCDate() + ' de ' + MESES[d.getUTCMonth()] + ' de ' + d.getUTCFullYear();
+}
 function renderReportesHorasView(sedeFilter, granularity) {
   if (!horasExtrasAllDias || !horasExtrasAllDias.length) return;
 
@@ -2197,6 +2205,7 @@ function renderReportesHorasView(sedeFilter, granularity) {
   const rows = empleadoFilter ? rowsInSede.filter(r => r.empleado_id === empleadoFilter) : rowsInSede;
 
   const { lastWeek, alertas } = computeHorasAlertas(horasExtrasAllDias, sedeFilter);
+  const corte = horasCorteLabel(horasExtrasAllDias);
   const rojos = alertas.filter(a => a.nivel === 'rojo');
   const amarillos = alertas.filter(a => a.nivel === 'amarillo');
   const topEmpleado = alertas[0];
@@ -2220,7 +2229,7 @@ function renderReportesHorasView(sedeFilter, granularity) {
   if (chartHorasTiempo) chartHorasTiempo.destroy();
   chartHorasTiempo = new Chart(el('chartHorasTiempo').getContext('2d'), {
     type: 'line', data: { labels: tiempoLabels, datasets: [{ label: 'Horas extra', data: tiempoValues, borderColor: SEDE_PALETTE[0], backgroundColor: SEDE_PALETTE[0], tension: .25 }] },
-    options: dashboardChartOptions('Horas extra en el tiempo' + (sedeFilter ? ' — ' + sedeFilter : ''), 'reportesView')
+    options: dashboardChartOptions(['Horas extra en el tiempo' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'reportesView')
   });
 
   // Ranking por empleado (horas extra acumuladas en el alcance filtrado).
@@ -2230,7 +2239,7 @@ function renderReportesHorasView(sedeFilter, granularity) {
   if (chartHorasRanking) chartHorasRanking.destroy();
   chartHorasRanking = new Chart(el('chartHorasRanking').getContext('2d'), {
     type: 'bar', data: { labels: rankLabels, datasets: [{ data: rankValues, backgroundColor: chartColors(rankValues, 'reportesView'), borderRadius: 6 }] },
-    options: Object.assign(dashboardChartOptions('Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'reportesView'), { indexAxis: 'y' })
+    options: Object.assign(dashboardChartOptions(['Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'reportesView'), { indexAxis: 'y' })
   });
 
   // Detalle por periodo.

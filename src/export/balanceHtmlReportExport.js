@@ -1061,6 +1061,10 @@ function viewHoras(){
   const rows = empleadoFilter ? rowsInSede.filter(r => r.empleadoId === empleadoFilter) : rowsInSede;
 
   const { lastWeek, alertas } = computeAlertasHoras(RAW_HORAS, sedeFilter);
+  const maxF = RAW_HORAS.reduce((m, r) => (!m || r.fecha > m ? r.fecha : m), null);
+  const MES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const dC = maxF ? new Date(String(maxF).slice(0, 10) + 'T00:00:00Z') : null;
+  const corte = dC ? dC.getUTCDate() + ' de ' + MES_L[dC.getUTCMonth()] + ' de ' + dC.getUTCFullYear() : '—';
   const rojos = alertas.filter(a => a.nivel === 'rojo');
   const amarillos = alertas.filter(a => a.nivel === 'amarillo');
   const topEmpleado = alertas[0];
@@ -1083,14 +1087,14 @@ function viewHoras(){
   const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
   charts.horasTiempo = new Chart(el('chartHorasTiempo').getContext('2d'), {
     type: 'line', data: { labels: tiempoLabels, datasets: [{ label: 'Horas extra', data: tiempoValues, borderColor: currentAccent(), backgroundColor: currentAccent(), tension: .25 }] },
-    options: chartOptions('Horas extra en el tiempo' + (sedeFilter ? ' — ' + sedeFilter : ''), null, fmtNum)
+    options: chartOptions(['Horas extra en el tiempo' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], null, fmtNum)
   });
 
   const top = findTopEmpleadosHoras(rows, 12);
   const rankLabels = top.map(e => e.nombre), rankValues = top.map(e => e.horaExtra);
   charts.horasRanking = new Chart(el('chartHorasRanking').getContext('2d'), {
     type: 'bar', data: { labels: rankLabels, datasets: [{ data: rankValues, backgroundColor: rankValues.map(() => currentAccent()), borderRadius: 6 }] },
-    options: Object.assign(chartOptions('Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'y'), {})
+    options: Object.assign(chartOptions(['Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'y'), {})
   });
 
   const empData = aggregateHorasByEmpleado(rows, granularity);
