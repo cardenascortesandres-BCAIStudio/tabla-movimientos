@@ -27,9 +27,13 @@ export default defineConfig({
         ]
       },
       workbox: {
-        // Todo el cálculo corre en el navegador y no hay llamadas a un backend,
-        // así que basta con precachear los assets del build (app shell).
-        globPatterns: ['**/*.{js,css,html,png,svg,ico}']
+        // Todo el cálculo corre en el navegador (incluida la lectura de PDF de
+        // Horas Extras, vía pdfjs-dist) — basta con precachear los assets del
+        // build (app shell), sin runtime caching de backend.
+        globPatterns: ['**/*.{js,mjs,css,html,png,svg,ico}'],
+        // El bundle principal + el worker de pdfjs-dist superan el límite por
+        // defecto de workbox (2 MiB) — se sube a 6 MiB para dejar margen.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024
       }
     })
   ],

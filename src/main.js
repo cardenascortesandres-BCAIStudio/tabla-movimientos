@@ -59,6 +59,13 @@ import { parsePresupuestoFile } from './core/presupuestoFileParse.js';
 import * as ventasApi from './ventas/ventasApi.js';
 import { aggregateByPeriod as aggregateVentByPeriod, computeProjection } from './ventas/ventasDashboardData.js';
 
+import { parsePdfEmpleados } from './horasExtras/horasExtrasPdfLoader.js';
+import * as horasExtrasApi from './horasExtras/horasExtrasApi.js';
+import {
+  aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
+  computeAlertas as computeHorasAlertas, findTopEmpleados, horaExtraDelDia, LIMITE_SEMANAL, UMBRAL_ALERTA
+} from './horasExtras/horasExtrasDashboardData.js';
+
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
 
 const app = { sedes: [], activeTab: 'detalle', templateId: DEFAULT_TEMPLATE_ID, dashStyleId: DEFAULT_DASHBOARD_STYLE_ID, flow: 'choice' };
@@ -439,6 +446,7 @@ function switchFlow(flow) {
   el('reportesFlow').classList.toggle('hidden-block', flow !== 'reportes');
   el('auditoriasFlow').classList.toggle('hidden-block', flow !== 'auditorias');
   el('ventasFlow').classList.toggle('hidden-block', flow !== 'ventas');
+  el('horasExtrasFlow').classList.toggle('hidden-block', flow !== 'horasExtras');
   if (flow === 'reportes' && !reportesWeeks) loadReportesData();
   if (flow === 'auditorias' && !auditBlocksRendered) { renderAuditBlocks(); auditBlocksRendered = true; }
 }
@@ -1200,12 +1208,15 @@ function switchReportesType(type) {
   el('reportesTypeMovimientosBtn').classList.toggle('tab-active', type === 'movimientos');
   el('reportesTypeAuditoriasBtn').classList.toggle('tab-active', type === 'auditorias');
   el('reportesTypeVentasBtn').classList.toggle('tab-active', type === 'ventas');
+  el('reportesTypeHorasBtn').classList.toggle('tab-active', type === 'horas');
   el('reportesCard').classList.toggle('hidden-block', type !== 'balance');
   el('reportesMovCard').classList.toggle('hidden-block', type !== 'movimientos');
   el('reportesAudCard').classList.toggle('hidden-block', type !== 'auditorias');
   el('reportesVentCard').classList.toggle('hidden-block', type !== 'ventas');
+  el('reportesHorasCard').classList.toggle('hidden-block', type !== 'horas');
   if (type === 'auditorias' && !audHistAudits) loadAudReportesData();
   if (type === 'ventas' && !ventasAllDias) loadVentReportesData();
+  if (type === 'horas' && !horasExtrasAllDias) loadHorasReportesData();
 }
 
 // ---------------- Reportes de Tabla de Movimientos ----------------
@@ -2025,6 +2036,206 @@ function renderPresupuestoTable() {
   });
 }
 
+// ---------------- Horas Extras (carga desde la pantalla inicial) ----------------
+// Cada PDF trae UNA página por empleado, y la sede de cada empleado sale
+// directo del propio PDF (no hay que adivinarla, a diferencia de Balance/
+// Ventas) — por eso el uploader no necesita ni sede ni fecha por archivo,
+// solo lista lo que se detectó y deja "Quitar" para descartar un archivo
+// que no calce.
+function createHorasUploader(ids, onSaved) {
+  let entries = []; // { fileName, error?, empleados, omitidas }
+
+  function render() {
+    el(ids.filesList).innerHTML = entries.map((e, i) => {
+      if (e.error) {
+        return `<div class="vent-file-row vent-file-error">
+          <div class="vent-file-name">${escapeHtml(e.fileName)}</div>
+          <div class="vent-file-summary">⚠ ${escapeHtml(e.error)}</div>
+          <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
+        </div>`;
+      }
+      const sedes = Array.from(new Set(e.empleados.map(emp => emp.sede))).join(', ');
+      const totalDias = e.empleados.reduce((a, emp) => a + emp.dias.length, 0);
+      const horaExtraTotal = e.empleados.reduce((a, emp) => a + emp.dias.reduce((b, d) => b + horaExtraDelDia(d), 0), 0);
+      const omitidasTxt = e.omitidas ? ` · ⚠ ${e.omitidas} página(s) sin reconocer` : '';
+      return `<div class="vent-file-row">
+        <div class="vent-file-name">${escapeHtml(e.fileName)}</div>
+        <div class="vent-file-summary">${escapeHtml(sedes)} · ${e.empleados.length} empleado(s) · ${totalDias} día(s) · Horas extra ${fmt(horaExtraTotal)}${omitidasTxt}</div>
+        <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
+      </div>`;
+    }).join('') || '<p class="hint">No hay archivos cargados.</p>';
+    el(ids.filesList).querySelectorAll('button[data-remove]').forEach(btn => {
+      btn.addEventListener('click', () => { entries.splice(+btn.dataset.remove, 1); render(); });
+    });
+    el(ids.previewCard).classList.toggle('hidden-block', entries.length === 0);
+  }
+
+  function handleFiles(files) {
+    el(ids.errorBanner).classList.add('hidden-block');
+    files.forEach(async file => {
+      if (!/\.pdf$/i.test(file.name)) {
+        entries.push({ fileName: file.name, error: `"${file.name}" no es un PDF.` });
+        render();
+        return;
+      }
+      try {
+        const { empleados, omitidas } = await parsePdfEmpleados(file);
+        if (!empleados.length) {
+          entries.push({ fileName: file.name, error: 'No se reconoció ninguna página como "Liquidación Detallada" en este PDF.' });
+        } else {
+          entries.push({ fileName: file.name, empleados, omitidas });
+        }
+      } catch (err) {
+        entries.push({ fileName: file.name, error: 'No se pudo leer el archivo: ' + err.message });
+      }
+      render();
+    });
+  }
+
+  async function saveAll() {
+    const valid = entries.filter(e => !e.error);
+    const banner = el(ids.saveBanner);
+    if (!valid.length) {
+      banner.className = 'banner error'; banner.classList.remove('hidden-block');
+      banner.textContent = '⚠ No hay archivos listos para guardar.';
+      return;
+    }
+    const dias = [];
+    valid.forEach(e => e.empleados.forEach(emp => emp.dias.forEach(d => {
+      dias.push({
+        sedeName: emp.sede, empleadoId: emp.empleadoId, empleadoNombre: emp.nombre, cargo: emp.cargo,
+        fecha: d.fecha, estadoDia: d.estadoDia, total: d.total, comida: d.comida, f: d.f, hdo: d.hdo,
+        rn: d.rn, rndyf: d.rndyf, dom: d.dom, d: d.d, hefd: d.hefd, hefn: d.hefn, he: d.he, hen: d.hen
+      });
+    })));
+    const btn = el(ids.saveBtn);
+    const originalText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    banner.className = 'banner info'; banner.classList.remove('hidden-block');
+    banner.textContent = `Guardando ${dias.length} registro(s)…`;
+    try {
+      await horasExtrasApi.saveDias(dias);
+    } catch (err) {
+      btn.disabled = false; btn.textContent = originalText;
+      banner.className = 'banner error';
+      banner.textContent = '⚠ Error guardando: ' + err.message;
+      return;
+    }
+    btn.disabled = false; btn.textContent = originalText;
+    banner.className = 'banner info';
+    banner.textContent = `✓ ${dias.length} registro(s) guardado(s) en el historial.`;
+    entries = [];
+    render();
+    horasExtrasAllDias = null; // fuerza recarga
+    if (onSaved) await onSaved();
+  }
+
+  return { handleFiles, saveAll };
+}
+
+const horasUploader = createHorasUploader({
+  filesList: 'horasFilesList', previewCard: 'horasPreviewCard', errorBanner: 'horasErrorBanner',
+  saveBtn: 'horasSaveBtn', saveBanner: 'horasSaveBanner'
+}, async () => { if (reportesType === 'horas') await loadHorasReportesData(); });
+
+// ---------------- Reportes de Horas Extras ----------------
+let horasExtrasAllDias = null; // filas crudas de horas_extra_dias (todas las sedes)
+let chartHorasTiempo, chartHorasRanking;
+
+async function loadHorasReportesData() {
+  el('horasReportesErrorBanner').classList.add('hidden-block');
+  el('horasReportesLoadingHint').classList.remove('hidden-block');
+  el('horasReportesLoadingHint').textContent = 'Cargando historial…';
+  try {
+    const { dias, fromCache } = await horasExtrasApi.getAllDias();
+    horasExtrasAllDias = dias || [];
+    if (!horasExtrasAllDias.length) {
+      el('horasReportesLoadingHint').textContent = 'Todavía no hay horas extra guardadas en el historial.';
+      el('reportesHorasView').classList.add('hidden-block');
+      return;
+    }
+    el('horasReportesLoadingHint').classList.toggle('hidden-block', !fromCache);
+    if (fromCache) el('horasReportesLoadingHint').textContent = 'Mostrando el último historial disponible en este equipo (sin conexión con el servidor ahora mismo).';
+    el('reportesHorasView').classList.remove('hidden-block');
+    el('horasReportesDownloadBtn').disabled = false;
+    renderHorasReportes();
+  } catch (err) {
+    el('horasReportesLoadingHint').classList.add('hidden-block');
+    const b = el('horasReportesErrorBanner');
+    b.classList.remove('hidden-block');
+    b.innerHTML = '⚠ No se pudo cargar el historial: ' + escapeHtml(err.message);
+  }
+}
+
+function renderHorasReportes() {
+  if (!horasExtrasAllDias) return;
+  const granularity = el('horasReportesGranularity').value;
+
+  const sedeNames = Array.from(new Set(horasExtrasAllDias.map(r => r.sede_name))).sort();
+  const sedeSel = el('horasReportesSedeFilter');
+  const prevSede = sedeSel.value;
+  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + sedeNames.map(s => `<option>${escapeHtml(s)}</option>`).join('');
+  if (sedeNames.includes(prevSede)) sedeSel.value = prevSede;
+  const sedeFilter = sedeSel.value;
+
+  const rowsInSede = sedeFilter ? horasExtrasAllDias.filter(r => r.sede_name === sedeFilter) : horasExtrasAllDias;
+  const empleadoNames = Array.from(new Map(rowsInSede.map(r => [r.empleado_id, r.empleado_nombre])).entries());
+  const empSel = el('horasReportesEmpleadoFilter');
+  const prevEmp = empSel.value;
+  empSel.innerHTML = '<option value="">Todos los empleados</option>' + empleadoNames.map(([id, nombre]) => `<option value="${escapeHtml(id)}">${escapeHtml(nombre)}</option>`).join('');
+  if (empleadoNames.some(([id]) => id === prevEmp)) empSel.value = prevEmp;
+  const empleadoFilter = empSel.value;
+
+  const rows = empleadoFilter ? rowsInSede.filter(r => r.empleado_id === empleadoFilter) : rowsInSede;
+
+  const { lastWeek, alertas } = computeHorasAlertas(horasExtrasAllDias, sedeFilter);
+  const rojos = alertas.filter(a => a.nivel === 'rojo');
+  const amarillos = alertas.filter(a => a.nivel === 'amarillo');
+  const topEmpleado = alertas[0];
+
+  el('horasReportesKpiGrid').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">${new Set(rowsInSede.map(r => r.empleado_id)).size}</div></div>
+    <div class="kpi-card ${rojos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🔴 Pasados del límite (${LIMITE_SEMANAL}h/semana)</div><div class="kpi-value">${rojos.length}</div></div>
+    <div class="kpi-card ${amarillos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🟡 Por pasarse (≥ ${UMBRAL_ALERTA}h/semana)</div><div class="kpi-value">${amarillos.length}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Más horas extra (última semana)</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
+
+  el('horasAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
+    const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
+    const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
+    return `<tr><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos'}.</td></tr>`;
+
+  // "En el tiempo": suma de horas extra por periodo, todas las sedes/empleados en el alcance filtrado.
+  const sedeData = aggregateHorasBySede(rows, granularity);
+  const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
+  const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
+  if (chartHorasTiempo) chartHorasTiempo.destroy();
+  chartHorasTiempo = new Chart(el('chartHorasTiempo').getContext('2d'), {
+    type: 'line', data: { labels: tiempoLabels, datasets: [{ label: 'Horas extra', data: tiempoValues, borderColor: SEDE_PALETTE[0], backgroundColor: SEDE_PALETTE[0], tension: .25 }] },
+    options: dashboardChartOptions('Horas extra en el tiempo' + (sedeFilter ? ' — ' + sedeFilter : ''), 'reportesView')
+  });
+
+  // Ranking por empleado (horas extra acumuladas en el alcance filtrado).
+  const top = findTopEmpleados(rows, 12);
+  const rankLabels = top.map(e => e.nombre);
+  const rankValues = top.map(e => e.horaExtra);
+  if (chartHorasRanking) chartHorasRanking.destroy();
+  chartHorasRanking = new Chart(el('chartHorasRanking').getContext('2d'), {
+    type: 'bar', data: { labels: rankLabels, datasets: [{ data: rankValues, backgroundColor: chartColors(rankValues, 'reportesView'), borderRadius: 6 }] },
+    options: Object.assign(dashboardChartOptions('Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'reportesView'), { indexAxis: 'y' })
+  });
+
+  // Detalle por periodo.
+  const empData = aggregateHorasByEmpleado(rows, granularity);
+  const detalleRows = [];
+  empData.byEmpleado.forEach(entry => entry.points.forEach(p => detalleRows.push({ ...p })));
+  detalleRows.sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
+  el('horasReportesTableBody').innerHTML = detalleRows.map(r => {
+    const cls = r.horaExtra > LIMITE_SEMANAL && granularity === 'week' ? 'diff-neg' : '';
+    return `<tr><td class="left">${escapeHtml(r.nombre)}</td><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td class="${cls}">${fmt(r.horaExtra)}</td><td>${fmt(r.total)}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="left hint">Sin datos para este filtro.</td></tr>';
+}
+
 // ---------------- Modo claro/oscuro (paneles tipo dashboard) ----------------
 // Los 6 paneles con fondo oscuro ("estilo Power BI") son los únicos oscuros
 // de la app — el resto ya usa el tema claro "Sello de Calidad". Reusa las
@@ -2123,6 +2334,16 @@ wireMultiFileDropzone('ventDropzone', 'ventFileInput', ventUploader.handleFiles)
 el('ventSaveBtn').addEventListener('click', ventUploader.saveAll);
 
 el('reportesTypeVentasBtn').addEventListener('click', () => switchReportesType('ventas'));
+
+el('modeHorasExtrasBtn').addEventListener('click', () => switchFlow('horasExtras'));
+el('backFromHorasExtrasBtn').addEventListener('click', () => switchFlow('choice'));
+wireMultiFileDropzone('horasDropzone', 'horasFileInput', horasUploader.handleFiles);
+el('horasSaveBtn').addEventListener('click', horasUploader.saveAll);
+el('reportesTypeHorasBtn').addEventListener('click', () => switchReportesType('horas'));
+el('horasReportesSedeFilter').addEventListener('change', renderHorasReportes);
+el('horasReportesEmpleadoFilter').addEventListener('change', renderHorasReportes);
+el('horasReportesGranularity').addEventListener('change', renderHorasReportes);
+
 el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
 initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodAllBtn', 'reportesPeriodNoneBtn');
 applyThemeMode();

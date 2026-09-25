@@ -10,6 +10,7 @@ import { balanceRouter } from './routes/balance.js';
 import { movimientosRouter } from './routes/movimientos.js';
 import { auditoriasRouter } from './routes/auditorias.js';
 import { ventasRouter } from './routes/ventas.js';
+import { horasExtrasRouter } from './routes/horasExtras.js';
 import { runMigrations } from './migrate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +24,7 @@ app.use('/api/balance', balanceRouter);
 app.use('/api/movimientos', movimientosRouter);
 app.use('/api/auditorias', auditoriasRouter);
 app.use('/api/ventas', ventasRouter);
+app.use('/api/horas-extras', horasExtrasRouter);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

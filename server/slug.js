@@ -27,7 +27,7 @@ export function sedeSlug(sedeName) {
 // es la fuente más antigua/completa (todas las sedes reales pasan por ahí).
 // `query` es la función exportada por server/db.js (pasada por quien llama,
 // para no crear una dependencia circular con db.js).
-const CANONICAL_LOOKUP_TABLES = ['balance_weeks', 'movimientos_weeks', 'ventas_dias', 'presupuestos_mensuales', 'pdv_audits'];
+const CANONICAL_LOOKUP_TABLES = ['balance_weeks', 'movimientos_weeks', 'ventas_dias', 'presupuestos_mensuales', 'pdv_audits', 'horas_extra_dias'];
 
 export async function resolveCanonicalSedeName(query, slug, typedName) {
   for (const table of CANONICAL_LOOKUP_TABLES) {

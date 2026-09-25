@@ -53,6 +53,12 @@
         <span class="mode-title">Ventas Diarias</span>
         <span class="mode-desc">Carga el reporte de ventas por día de una sede (se puede repetir a diario) para comparar venta, presupuesto y proyección entre puntos.</span>
       </button>
+      <div class="mode-divider" aria-hidden="true"></div>
+      <button type="button" class="mode-option" id="modeHorasExtrasBtn">
+        <span class="mode-eyebrow">⏱ Nuevo</span>
+        <span class="mode-title">Horas Extras</span>
+        <span class="mode-desc">Carga el PDF semanal de Recursos Humanos (Liquidación Detallada, una o varias sedes) para controlar horas extra por empleado y recibir alertas por límite.</span>
+      </button>
     </div>
   </div>
 
@@ -219,6 +225,31 @@
     </div>
   </div>
 
+  <div id="horasExtrasFlow" class="hidden-block">
+    <button type="button" class="btn-secondary back-btn" id="backFromHorasExtrasBtn">‹ Volver al inicio</button>
+
+    <div class="card">
+      <h2 style="margin-top:0">Cargar horas extra (una o varias sedes)</h2>
+      <p class="hint">El PDF "Liquidación Detallada" que envía Recursos Humanos cada semana — la sede de cada empleado se lee directo del PDF, no hace falta indicarla. Volver a subir el mismo reporte no duplica nada (se reafirma por cédula + fecha).</p>
+      <div class="dropzone" id="horasDropzone">
+        <p class="big">Liquidación Detallada (PDF)</p>
+        <p>Puedes soltar varios archivos a la vez — uno por cada sede</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('horasFileInput').click()">Seleccionar archivo(s)</button>
+        <input type="file" id="horasFileInput" accept=".pdf" multiple>
+      </div>
+      <div class="banner error hidden-block" id="horasErrorBanner"></div>
+
+      <div class="hidden-block" id="horasPreviewCard">
+        <div class="balance-block-title">Archivos cargados</div>
+        <div id="horasFilesList"></div>
+        <div class="footer-actions">
+          <button class="btn-primary" id="horasSaveBtn">Guardar todo en el historial</button>
+        </div>
+        <div class="banner info hidden-block" id="horasSaveBanner"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="reportesFlow" class="hidden-block">
     <div class="reportes-top-row">
       <button type="button" class="btn-secondary back-btn" id="backFromReportesBtn">‹ Volver al inicio</button>
@@ -231,6 +262,7 @@
       <button class="tab-btn" id="reportesTypeMovimientosBtn">📋 Tabla de Movimientos</button>
       <button class="tab-btn" id="reportesTypeAuditoriasBtn">🗒 Auditorías</button>
       <button class="tab-btn" id="reportesTypeVentasBtn">🎯 Presupuesto</button>
+      <button class="tab-btn" id="reportesTypeHorasBtn">⏱ Horas Extras</button>
     </div>
 
     <div class="card" id="reportesCard">
@@ -448,6 +480,56 @@
       <p class="hint" id="ventReportesLoadingHint" style="margin-top:18px">Cargando historial…</p>
       <div class="banner error hidden-block" id="ventReportesErrorBanner"></div>
       <p class="hint">El comparativo contra la meta y la proyección de cierre del mes ya están unificados en la pestaña "📊 Informes" → botón "🎯 Presupuesto".</p>
+    </div>
+
+    <div class="card hidden-block" id="reportesHorasCard">
+      <div class="dash-header-row">
+        <div>
+          <div class="dash-title">Reportes de Horas Extras</div>
+          <div class="dash-sub">Control por empleado — alerta roja si supera 12 h extra en la semana, amarilla desde 10 h. Sube el PDF semanal desde "⏱ Horas Extras" en el inicio.</div>
+        </div>
+        <button class="btn-secondary" id="horasReportesDownloadBtn" disabled>⬇ Informe interactivo (HTML)</button>
+      </div>
+      <p class="hint" id="horasReportesLoadingHint">Cargando historial…</p>
+      <div class="banner error hidden-block" id="horasReportesErrorBanner"></div>
+
+      <div id="reportesHorasView" class="hidden-block">
+        <div class="dash-filters">
+          <select id="horasReportesSedeFilter"></select>
+          <select id="horasReportesEmpleadoFilter"></select>
+          <select id="horasReportesGranularity">
+            <option value="week" selected>Semanal</option>
+            <option value="month">Mensual</option>
+            <option value="year">Anual</option>
+          </select>
+        </div>
+        <div class="kpi-grid" id="horasReportesKpiGrid"></div>
+
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Alertas — última semana con datos</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
+              <tbody id="horasAlertasTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-charts">
+          <div class="chart-box"><canvas id="chartHorasTiempo"></canvas></div>
+          <div class="chart-box"><canvas id="chartHorasRanking"></canvas></div>
+        </div>
+
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Detalle por periodo</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Periodo</th><th>Horas extra</th><th>Total trabajado</th></tr></thead>
+              <tbody id="horasReportesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
