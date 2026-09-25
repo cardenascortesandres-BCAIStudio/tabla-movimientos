@@ -1082,7 +1082,9 @@ function viewHoras(){
   }).join('') || '<tr><td colspan="5" class="left">Nadie en alerta en ' + (lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos') + '.</td></tr>';
 
   const granularity = el('filterGranularidad').value;
-  const sedeData = aggregateHorasBySede(rows, granularity);
+  let tiempoGran = granularity;
+  let sedeData = aggregateHorasBySede(rows, tiempoGran);
+  if (sedeData.periodKeysSorted.length < 2 && tiempoGran !== 'week') { tiempoGran = 'week'; sedeData = aggregateHorasBySede(rows, tiempoGran); }
   const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
   charts.horasTiempo = new Chart(el('chartHorasTiempo').getContext('2d'), {

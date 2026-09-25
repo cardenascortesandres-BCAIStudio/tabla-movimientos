@@ -2223,7 +2223,10 @@ function renderReportesHorasView(sedeFilter, granularity) {
   }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos'}.</td></tr>`;
 
   // "En el tiempo": suma de horas extra por periodo, todas las sedes/empleados en el alcance filtrado.
-  const sedeData = aggregateHorasBySede(rows, granularity);
+  // Con un solo mes/año cargado la serie quedaba en un único punto — se baja a semanas.
+  let tiempoGran = granularity;
+  let sedeData = aggregateHorasBySede(rows, tiempoGran);
+  if (sedeData.periodKeysSorted.length < 2 && tiempoGran !== 'week') { tiempoGran = 'week'; sedeData = aggregateHorasBySede(rows, tiempoGran); }
   const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
   if (chartHorasTiempo) chartHorasTiempo.destroy();
