@@ -9,6 +9,7 @@
 import { detectHeaderRow } from './headerDetection.js';
 import { normText, normalizeCode } from './normalize.js';
 import { matchCanonicalBloque, BLOQUE_SIN_CLASIFICAR } from './movimientosBloques.js';
+import { MOVIMIENTOS_EXCLUDED_CODES } from '../data/movimientosExclusionList.js';
 
 function findCol(headerRow, matchers) {
   for (let c = 0; c < headerRow.length; c++) {
@@ -63,6 +64,11 @@ export function parseFinalMovimientosFile(rows, sedeName) {
       continue;
     }
     if (!codeNorm) continue; // fila sin código útil (pie de página, fila de gran total, etc.)
+
+    // Productos de minimarket (algunos puntos de venta lo manejan además del
+    // negocio cárnico) — se descartan por completo, no cuentan para ningún
+    // bloque. Lista compartida por el usuario, ver src/data/movimientosExclusionList.js.
+    if (MOVIMIENTOS_EXCLUDED_CODES.has(codeNorm)) continue;
 
     // Productos como "D.C. GORDANA"/"DESPERDICIO" a veces quedan SIN fórmula
     // de "% Diferencia" en el Excel (celda realmente vacía, no un 0) — no

@@ -180,6 +180,10 @@ function parseFinalMovimientosFile(rows, sedeName) {
       continue;
     }
     if (!codeNorm) continue;
+    // Productos de minimarket (algunos puntos de venta lo manejan además del
+    // negocio cárnico) — se descartan por completo. Lista compartida por el
+    // usuario, ver src/data/movimientosExclusionList.js.
+    if (EXCLUDED_CODES.has(codeNorm)) continue;
     // Productos como "D.C. GORDANA"/"DESPERDICIO" a veces quedan SIN fórmula
     // de "% Diferencia" en el Excel (celda realmente vacía, no un 0) — el
     // usuario confirmó que esos no cuentan para el bloque (no tienen fórmula
@@ -231,7 +235,10 @@ function walk(dir) {
   return out;
 }
 
+let EXCLUDED_CODES = new Set();
+
 async function main() {
+  ({ MOVIMIENTOS_EXCLUDED_CODES: EXCLUDED_CODES } = await import('../src/data/movimientosExclusionList.js'));
   const allResults = [];
   for (const [folderName, sedeName] of SEDES) {
     const sedeDir = path.join(BASE, folderName);
