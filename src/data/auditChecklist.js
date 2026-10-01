@@ -28,7 +28,7 @@ export const AUDIT_BLOCKS = [
   },
   {
     id: 3,
-    title: 'Cadena de frío',
+    title: 'Neveras y cuartos fríos',
     items: [
       'Temperatura de neveras dentro de rango',
       'Termómetros funcionando y visibles',
@@ -50,11 +50,13 @@ export const AUDIT_BLOCKS = [
   },
   {
     id: 5,
-    title: 'Cumplimiento normativo',
+    title: 'Concepto sanitario del punto',
     items: [
       'Registro INVIMA visible',
       'Certificado de fumigación vigente',
-      'Extintores vigentes y accesibles'
+      'Extintores vigentes y accesibles',
+      'Acta de inspección sanitaria',
+      'Carnet de manipulación de alimentos'
     ]
   },
   {

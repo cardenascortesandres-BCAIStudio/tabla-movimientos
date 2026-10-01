@@ -49,7 +49,7 @@ import { guessWeekFromText } from './core/weekDateGuess.js';
 import * as movimientosApi from './movimientos/movimientosApi.js';
 import { aggregateByPeriod as aggregateMovByPeriod } from './movimientos/movimientosDashboardData.js';
 
-import { AUDIT_BLOCKS, AUDIT_TOTAL_ITEMS } from './data/auditChecklist.js';
+import { AUDIT_BLOCKS, AUDIT_TOTAL_ITEMS, AUDIT_RESULT_OPTIONS } from './data/auditChecklist.js';
 import * as auditoriasApi from './auditorias/auditoriasApi.js';
 import { aggregateByPeriod as aggregateAudByPeriod, combineBlockPct } from './auditorias/auditoriasDashboardData.js';
 import { buildAuditoriasReportHtml } from './export/auditoriasHtmlReportExport.js';
@@ -1666,6 +1666,37 @@ function updateAuditSaveState() {
   el('audSaveBtn').disabled = !ready;
 }
 
+// Foto de evidencia: se redimensiona/comprime en el navegador (canvas) antes
+// de guardarla — una foto de celular sin tocar puede pesar varios MB, y acá
+// se guarda directo en la base de datos (sin almacenamiento de archivos
+// aparte), así que conviene dejarla liviana.
+let auditFotoDataUrl = null;
+function handleAuditFoto(file) {
+  const hint = el('audFotoHint');
+  if (!file) return;
+  if (!/^image\//.test(file.type)) { hint.textContent = '⚠ Elige un archivo de imagen.'; return; }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX_W = 1280;
+      const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      auditFotoDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      const kb = Math.round(auditFotoDataUrl.length * 0.75 / 1024);
+      hint.textContent = `✓ Foto lista (${kb} KB)`;
+      const preview = el('audFotoPreview');
+      preview.src = auditFotoDataUrl;
+      preview.classList.remove('hidden-block');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 async function saveAudit() {
   const sedeName = el('audSedeInput').value.trim();
   const auditDate = el('audDateInput').value;
@@ -1688,11 +1719,18 @@ async function saveAudit() {
       sedeName, auditDate, auditTime: el('audTimeInput').value || null, auditorName: el('audAuditorInput').value.trim() || null,
       items, totalItems: AUDIT_TOTAL_ITEMS, checkedItems, pctCumplimiento,
       resultado: el('audResultadoInput').value, hallazgos: el('audHallazgosInput').value.trim() || null,
-      planAccion: el('audPlanInput').value.trim() || null, fechaSeguimiento: el('audSeguimientoInput').value || null
+      planAccion: el('audPlanInput').value.trim() || null, fechaSeguimiento: el('audSeguimientoInput').value || null,
+      fotoDataUrl: auditFotoDataUrl
     });
     banner.className = 'banner info'; banner.classList.remove('hidden-block');
     banner.textContent = '✓ Auditoría guardada en el historial.';
     audHistAudits = null; // fuerza recarga la próxima vez que se muestre Reportes > Auditorías
+    // La foto es específica de ESTA visita — se limpia para que la próxima
+    // auditoría (de la misma sede u otra) no reenvíe la misma imagen sin querer.
+    auditFotoDataUrl = null;
+    el('audFotoInput').value = '';
+    el('audFotoHint').textContent = '';
+    el('audFotoPreview').classList.add('hidden-block');
   } catch (err) {
     banner.className = 'banner error'; banner.classList.remove('hidden-block');
     banner.textContent = '⚠ No se pudo guardar: ' + err.message;
@@ -1752,6 +1790,72 @@ function renderAudReportes() {
 
   renderAudReportesCharts(data, sedeFilter);
   renderAudReportesTable(data, sedeFilter);
+  renderAudHistorial(sedeFilter);
+}
+
+// Histórico de novedades por punto: cada VISITA por separado (no agregada
+// por periodo como la tabla de arriba) — a pedido explícito del usuario,
+// para poder abrir una visita puntual y ver su checklist, hallazgos y foto.
+let audVisitaAbierta = null;
+function renderAudHistorial(sedeFilter) {
+  let rows = sedeFilter ? audHistAudits.filter(a => a.sede_name === sedeFilter) : audHistAudits;
+  rows = rows.slice().sort((a, b) => (a.audit_date < b.audit_date ? 1 : -1));
+  el('audHistorialTableBody').innerHTML = rows.map(a => {
+    const cls = a.pct_cumplimiento < 0.7 ? 'diff-neg' : (a.pct_cumplimiento >= 0.9 ? 'diff-zero' : '');
+    const resultadoLabel = (AUDIT_RESULT_OPTIONS.find(o => o.value === a.resultado) || {}).label || a.resultado || '—';
+    return `<tr class="row-click" data-audit="${a.id}" title="Ver el detalle de esta visita">
+      <td class="left">${escapeHtml(a.sede_name)}</td>
+      <td class="left">${escapeHtml(String(a.audit_date).slice(0, 10))}</td>
+      <td class="left">${escapeHtml(a.auditor_name || '—')}</td>
+      <td class="${cls}">${fmtPct(a.pct_cumplimiento)}</td>
+      <td class="left">${escapeHtml(resultadoLabel)}</td>
+      <td class="left">${escapeHtml(a.hallazgos || '—')}</td>
+      <td>${a.tiene_foto ? '📷' : '—'}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="left hint">Sin auditorías guardadas para este filtro.</td></tr>';
+  if (audVisitaAbierta && !rows.some(a => String(a.id) === String(audVisitaAbierta))) {
+    audVisitaAbierta = null;
+    el('audVisitaDetalle').classList.add('hidden-block');
+  }
+}
+
+async function renderAudVisitaDetalle(auditId) {
+  const box = el('audVisitaDetalle');
+  const audit = (audHistAudits || []).find(a => String(a.id) === String(auditId));
+  if (!audit) { box.classList.add('hidden-block'); return; }
+  const resultadoLabel = (AUDIT_RESULT_OPTIONS.find(o => o.value === audit.resultado) || {}).label || audit.resultado || '—';
+  const bloques = AUDIT_BLOCKS.map(b => {
+    const st = audit.items && audit.items[b.id];
+    if (!st) return '';
+    const itemsHtml = b.items.map((label, i) => {
+      const ok = !!(st.checks && st.checks[i]);
+      return `<li class="${ok ? '' : 'diff-neg'}">${ok ? '✓' : '✕'} ${escapeHtml(label)}</li>`;
+    }).join('');
+    return `<div class="audit-block-card" style="margin-bottom:10px">
+      <div class="audit-block-head"><span class="audit-block-num">${b.id}</span>${escapeHtml(b.title)}</div>
+      <ul style="margin:8px 0 0 18px;padding:0">${itemsHtml}</ul>
+      ${st.observaciones ? `<p class="hint" style="margin-top:6px">Observaciones: ${escapeHtml(st.observaciones)}</p>` : ''}
+    </div>`;
+  }).join('');
+  box.innerHTML = `<div class="dash-table-title">Visita del ${escapeHtml(String(audit.audit_date).slice(0, 10))} — ${escapeHtml(audit.sede_name)}${audit.auditor_name ? ' · ' + escapeHtml(audit.auditor_name) : ''}
+      <button type="button" class="btn-tiny" id="audVisitaCerrar" style="float:right">✕ Cerrar</button></div>
+    <p><b>Resultado:</b> ${escapeHtml(resultadoLabel)} · <b>% Cumplimiento:</b> ${fmtPct(audit.pct_cumplimiento)}</p>
+    ${audit.hallazgos ? `<p><b>Hallazgos:</b> ${escapeHtml(audit.hallazgos)}</p>` : ''}
+    ${audit.plan_accion ? `<p><b>Plan de acción:</b> ${escapeHtml(audit.plan_accion)}</p>` : ''}
+    ${audit.fecha_seguimiento ? `<p><b>Fecha de seguimiento:</b> ${escapeHtml(String(audit.fecha_seguimiento).slice(0, 10))}</p>` : ''}
+    <div id="audVisitaFoto">${audit.tiene_foto ? '<p class="hint">Cargando foto…</p>' : ''}</div>
+    ${bloques}`;
+  box.classList.remove('hidden-block');
+  el('audVisitaCerrar').addEventListener('click', () => { audVisitaAbierta = null; box.classList.add('hidden-block'); });
+  if (audit.tiene_foto) {
+    try {
+      const { fotoDataUrl } = await auditoriasApi.getFoto(audit.id);
+      el('audVisitaFoto').innerHTML = fotoDataUrl ? `<img src="${fotoDataUrl}" style="max-width:320px;border-radius:8px;margin:8px 0">` : '';
+    } catch {
+      el('audVisitaFoto').innerHTML = '<p class="hint">⚠ No se pudo cargar la foto.</p>';
+    }
+  }
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function renderAudReportesCharts(data, sedeFilter) {
@@ -2406,6 +2510,13 @@ el('backFromAuditoriasBtn').addEventListener('click', () => switchFlow('choice')
 el('audSedeInput').addEventListener('input', updateAuditSaveState);
 el('audDateInput').addEventListener('change', updateAuditSaveState);
 el('audSaveBtn').addEventListener('click', saveAudit);
+el('audFotoInput').addEventListener('change', (e) => handleAuditFoto(e.target.files[0]));
+el('audHistorialTableBody').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-audit]');
+  if (!tr) return;
+  audVisitaAbierta = tr.dataset.audit;
+  renderAudVisitaDetalle(audVisitaAbierta);
+});
 
 el('modeVentasBtn').addEventListener('click', () => switchFlow('ventas'));
 el('backFromVentasBtn').addEventListener('click', () => switchFlow('choice'));

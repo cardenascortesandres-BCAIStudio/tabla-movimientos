@@ -487,6 +487,18 @@
             </table>
           </div>
         </div>
+
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Histórico de novedades por punto</div>
+          <p class="hint">Cada visita por separado — haz clic en una fila para ver el checklist completo, los hallazgos y la foto de evidencia.</p>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Sede</th><th class="left">Fecha</th><th class="left">Auditor</th><th>% Cumplimiento</th><th class="left">Resultado</th><th class="left">Hallazgos</th><th>Foto</th></tr></thead>
+              <tbody id="audHistorialTableBody"></tbody>
+            </table>
+          </div>
+          <div class="dash-table-wrap hidden-block" id="audVisitaDetalle"></div>
+        </div>
       </div>
     </div>
 
@@ -572,6 +584,14 @@
         <div class="field" style="flex:1 1 100%">
           <label>Plan de acción</label>
           <input type="text" id="audPlanInput" placeholder="Opcional">
+        </div>
+      </div>
+      <div class="fields">
+        <div class="field" style="flex:1 1 100%">
+          <label>Foto de evidencia de la visita</label>
+          <input type="file" id="audFotoInput" accept="image/*">
+          <p class="hint" id="audFotoHint"></p>
+          <img id="audFotoPreview" class="hidden-block" style="max-width:220px;border-radius:8px;margin-top:8px">
         </div>
       </div>
     </div>

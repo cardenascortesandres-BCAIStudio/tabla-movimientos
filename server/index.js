@@ -18,7 +18,10 @@ const DIST_WEB = path.join(__dirname, '..', 'dist-web');
 const PORT = process.env.PORT || 4173;
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+// 8mb: alcanza para el payload de Auditorías PDV con foto de evidencia (se
+// comprime/redimensiona en el navegador antes de enviarla, pero se deja
+// margen) — el resto de rutas sigue mandando payloads mucho más chicos.
+app.use(express.json({ limit: '8mb' }));
 
 app.use('/api/balance', balanceRouter);
 app.use('/api/movimientos', movimientosRouter);

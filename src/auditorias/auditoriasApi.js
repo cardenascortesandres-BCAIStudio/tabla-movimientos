@@ -49,3 +49,9 @@ export async function saveAudit(auditRecord) {
 export function getSedesConHistorial() {
   return withCacheFallback('sedes', () => apiFetch('/api/auditorias/sedes'));
 }
+
+// La foto no viene en getAllAudits() (ver server/routes/auditorias.js) — se
+// pide aparte, solo cuando el usuario abre el detalle de esa visita.
+export function getFoto(auditId) {
+  return apiFetch('/api/auditorias/audits/' + auditId + '/foto');
+}
