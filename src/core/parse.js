@@ -1,13 +1,20 @@
 // Parseo de las filas de datos de un archivo ya con encabezado detectado.
 
 import { normText, normalizeCode } from './normalize.js';
+import { MOVIMIENTOS_EXCLUDED_CODES } from '../data/movimientosExclusionList.js';
 
 // Productos que no son carne/pescado (insumos, empaques, aseo, domicilios) —
 // se excluyen del conteo aunque tengan código y aparezcan en el archivo.
 const EXCLUDED_NAME_KEYWORDS = ['ADOBO', 'CANASTILLA', 'BOLSA', 'HIPOCLORITO', 'DETERGENTE', 'DOMICILIO'];
 
-function isExcludedProduct(nameNorm) {
-  return EXCLUDED_NAME_KEYWORDS.some(kw => nameNorm.includes(kw));
+// Productos de minimarket (algunos puntos de venta lo manejan además del
+// negocio cárnico, ver src/data/movimientosExclusionList.js) — se excluyen
+// por código, igual que los de arriba se excluyen por palabra clave. Sin
+// esto, estos productos no entraban en ningún bloque del catálogo maestro y
+// terminaban cayendo en "PRODUCTOS ADICIONALES (fuera del listado maestro)"
+// (ver src/core/catalog.js), obligando a borrarlos a mano cada vez.
+function isExcludedProduct(nameNorm, codeNorm) {
+  return EXCLUDED_NAME_KEYWORDS.some(kw => nameNorm.includes(kw)) || MOVIMIENTOS_EXCLUDED_CODES.has(codeNorm);
 }
 
 export function parseDataRows(rows, headerInfo, movementCols) {
@@ -49,7 +56,7 @@ export function parseDataRows(rows, headerInfo, movementCols) {
     }
 
     if (!codeNorm) { skippedNoCode++; continue; }
-    if (isExcludedProduct(nameNorm)) { skippedExcluded++; continue; }
+    if (isExcludedProduct(nameNorm, codeNorm)) { skippedExcluded++; continue; }
 
     const values = {};
     movementCols.forEach(mc => {

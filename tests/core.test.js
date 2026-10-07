@@ -167,6 +167,19 @@ describe('parseDataRows', () => {
     expect(products.map(p => p.rawCode)).toEqual(['1101']);
     expect(skippedExcluded).toBe(6);
   });
+
+  it('excluye por código los productos de minimarket (LISTA ADICIONAL PARA QUITAR) para que no caigan en "PRODUCTOS ADICIONALES"', () => {
+    const rows = [
+      ['Código', 'Detalle', 'COMPRAS'],
+      ['7,430', 'RINGO ORIGINAL ADULTOS X 1KL', 10], // está en movimientosExclusionList.js
+      ['1101', 'LOMO VICHE CORRIENTE', 15],
+    ];
+    const hInfo = detectHeaderRow(rows, 5);
+    const mCols = classifyMovementCols(rows, hInfo);
+    const { products, skippedExcluded } = parseDataRows(rows, hInfo, mCols);
+    expect(products.map(p => p.rawCode)).toEqual(['1101']);
+    expect(skippedExcluded).toBe(1);
+  });
 });
 
 describe('parseDataRows — excluye insumos/empaques/aseo por palabra clave', () => {
