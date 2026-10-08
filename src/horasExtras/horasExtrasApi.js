@@ -1,15 +1,16 @@
 // Cliente de la API de Horas Extras — mismo molde cache-en-localStorage que
 // src/ventas/ventasApi.js / src/balance/balanceApi.js: si la API falla, se
 // devuelve la última copia guardada (modo lectura, offline-friendly).
+// Fábrica porque hay DOS instancias: PDV (/api/horas-extras) y Planta
+// (/api/horas-extras-planta) — mismo backend, tabla y caché separados para
+// controlar cada una por su cuenta, a pedido explícito del usuario.
 
-const CACHE_PREFIX = 'horasExtras:cache:';
-
-function cacheGet(key) {
-  try { const raw = localStorage.getItem(CACHE_PREFIX + key); return raw ? JSON.parse(raw) : null; }
+function cacheGet(prefix, key) {
+  try { const raw = localStorage.getItem(prefix + key); return raw ? JSON.parse(raw) : null; }
   catch { return null; }
 }
-function cacheSet(key, value) {
-  try { localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(value)); }
+function cacheSet(prefix, key, value) {
+  try { localStorage.setItem(prefix + key, JSON.stringify(value)); }
   catch { /* localStorage lleno o no disponible — no es crítico, solo se pierde el respaldo offline */ }
 }
 
@@ -22,22 +23,29 @@ async function apiFetch(path, options) {
   return res.json();
 }
 
-export async function getAllDias() {
-  try {
-    const data = await apiFetch('/api/horas-extras/dias');
-    cacheSet('dias', data);
-    return data;
-  } catch (err) {
-    const cached = cacheGet('dias');
-    if (cached) return { ...cached, fromCache: true, cacheError: err.message };
-    throw err;
-  }
+export function createHorasExtrasApi(basePath, cachePrefix) {
+  return {
+    async getAllDias() {
+      try {
+        const data = await apiFetch(basePath + '/dias');
+        cacheSet(cachePrefix, 'dias', data);
+        return data;
+      } catch (err) {
+        const cached = cacheGet(cachePrefix, 'dias');
+        if (cached) return { ...cached, fromCache: true, cacheError: err.message };
+        throw err;
+      }
+    },
+    async saveDias(dias) {
+      return apiFetch(basePath + '/dias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dias })
+      });
+    }
+  };
 }
 
-export async function saveDias(dias) {
-  return apiFetch('/api/horas-extras/dias', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dias })
-  });
-}
+// Instancia PDV — mismo nombre/forma que antes (se usaba como `import * as
+// horasExtrasApi` en toda la app), para no tener que tocar nada más ahí.
+export const { getAllDias, saveDias } = createHorasExtrasApi('/api/horas-extras', 'horasExtras:cache:');

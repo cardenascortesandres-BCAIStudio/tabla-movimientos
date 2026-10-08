@@ -104,8 +104,8 @@ td.diff-zero{color:var(--verde-ok);font-weight:700;background:var(--verde-bg);}
    se ven — se usan los del tema oscuro activo en su lugar. */
 #reportesView td.diff-neg, #reportesMovView td.diff-neg{color:var(--dv-neg);background:transparent;}
 #reportesView td.diff-zero, #reportesMovView td.diff-zero{color:var(--dv-pos);background:transparent;}
-#reportesAudView, #reportesVentView td.diff-neg{color:var(--dv-neg);background:transparent;}
-#reportesAudView, #reportesVentView td.diff-zero{color:var(--dv-pos);background:transparent;}
+#reportesAudView, #reportesVentView, #reportesHorasPlantaView td.diff-neg{color:var(--dv-neg);background:transparent;}
+#reportesAudView, #reportesVentView, #reportesHorasPlantaView td.diff-zero{color:var(--dv-pos);background:transparent;}
 tr.merged-flag td.left::after{content:" ⚠";color:#c98a00;}
 td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 
@@ -153,6 +153,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 #dashboardView button:not(.chart-dl-btn):hover, #reportesView button:not(.chart-dl-btn):hover,
 #reportesMovView button:not(.chart-dl-btn):hover, #reportesAudView button:not(.chart-dl-btn):hover,
 #reportesVentView button:not(.chart-dl-btn):hover, #balanceResultsView button:not(.chart-dl-btn):hover,
+#reportesHorasPlantaView button:not(.chart-dl-btn):hover,
 .tab-btn:hover, .sede-chip:hover, #themeModeToggleBtn:hover{
   box-shadow:0 0 0 3px var(--dv-glow, rgba(62,168,255,.35)), 0 0 14px 2px var(--dv-glow, rgba(62,168,255,.35));
   transition:box-shadow .15s;
@@ -177,7 +178,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 /* ---- Panel comparativo (dashboard): 5 estilos seleccionables ----
    Cada estilo solo redefine estas variables (ver src/theme/dashboardStyles.js
    para la lista + el selector); el HTML/JS del panel es el mismo siempre. */
-#dashboardView, #balanceResultsView, #reportesView, #reportesMovView, #reportesAudView, #reportesVentView{
+#dashboardView, #balanceResultsView, #reportesView, #reportesMovView, #reportesAudView, #reportesVentView, #reportesHorasPlantaView{
   --dv-bg:#0b0f1c; --dv-card-bg:#151b2e; --dv-card-bg2:#0f1424; --dv-border:rgba(62,168,255,.25);
   --dv-text:#eaf0ff; --dv-text-muted:#8892b0; --dv-text-muted-2:#7683a6;
   --dv-glow:rgba(62,168,255,.25); --dv-glow-neg:rgba(255,59,110,.25); --dv-glow-pos:rgba(43,227,168,.25);
@@ -187,7 +188,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   --dv-radius:12px; --dv-shadow:inset 0 0 60px rgba(62,168,255,.06);
   background:var(--dv-bg);border-radius:14px;padding:24px;box-shadow:var(--dv-shadow);
 }
-#dashboardView[data-dash-style="minimalista"], #reportesView[data-dash-style="minimalista"], #reportesMovView[data-dash-style="minimalista"], #reportesAudView, #reportesVentView[data-dash-style="minimalista"]{
+#dashboardView[data-dash-style="minimalista"], #reportesView[data-dash-style="minimalista"], #reportesMovView[data-dash-style="minimalista"], #reportesAudView, #reportesVentView[data-dash-style="minimalista"], #reportesHorasPlantaView[data-dash-style="minimalista"]{
   --dv-bg:#ffffff; --dv-card-bg:#fafafa; --dv-card-bg2:#fafafa; --dv-border:#e2e2e2;
   --dv-text:#111111; --dv-text-muted:#777777; --dv-text-muted-2:#888888;
   --dv-glow:transparent; --dv-glow-neg:transparent; --dv-glow-pos:transparent;
@@ -196,7 +197,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   --dv-select-bg:#ffffff; --dv-select-border:#dddddd;
   --dv-radius:6px; --dv-shadow:none;
 }
-#dashboardView[data-dash-style="corporativo"], #reportesView[data-dash-style="corporativo"], #reportesMovView[data-dash-style="corporativo"], #reportesAudView, #reportesVentView[data-dash-style="corporativo"]{
+#dashboardView[data-dash-style="corporativo"], #reportesView[data-dash-style="corporativo"], #reportesMovView[data-dash-style="corporativo"], #reportesAudView, #reportesVentView[data-dash-style="corporativo"], #reportesHorasPlantaView[data-dash-style="corporativo"]{
   --dv-bg:#eef1f6; --dv-card-bg:#ffffff; --dv-card-bg2:#ffffff; --dv-border:#d4dbe6;
   --dv-text:#1c2b3a; --dv-text-muted:#5b6b7c; --dv-text-muted-2:#5b6b7c;
   --dv-glow:rgba(29,78,216,.12); --dv-glow-neg:rgba(192,57,43,.12); --dv-glow-pos:rgba(31,122,63,.12);
@@ -205,7 +206,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   --dv-select-bg:#ffffff; --dv-select-border:#c7d2e0;
   --dv-radius:10px; --dv-shadow:none;
 }
-#dashboardView[data-dash-style="denso"], #reportesView[data-dash-style="denso"], #reportesMovView[data-dash-style="denso"], #reportesAudView, #reportesVentView[data-dash-style="denso"]{
+#dashboardView[data-dash-style="denso"], #reportesView[data-dash-style="denso"], #reportesMovView[data-dash-style="denso"], #reportesAudView, #reportesVentView[data-dash-style="denso"], #reportesHorasPlantaView[data-dash-style="denso"]{
   --dv-bg:#000000; --dv-card-bg:#14171c; --dv-card-bg2:#14171c; --dv-border:#2a2f38;
   --dv-text:#ffffff; --dv-text-muted:#9aa3ad; --dv-text-muted-2:#9aa3ad;
   --dv-glow:rgba(255,196,25,.15); --dv-glow-neg:rgba(255,77,77,.2); --dv-glow-pos:rgba(53,214,138,.2);
@@ -214,7 +215,7 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
   --dv-select-bg:#14171c; --dv-select-border:#3a4048;
   --dv-radius:6px; --dv-shadow:none;
 }
-#dashboardView[data-dash-style="calido"], #reportesView[data-dash-style="calido"], #reportesMovView[data-dash-style="calido"], #reportesAudView, #reportesVentView[data-dash-style="calido"]{
+#dashboardView[data-dash-style="calido"], #reportesView[data-dash-style="calido"], #reportesMovView[data-dash-style="calido"], #reportesAudView, #reportesVentView[data-dash-style="calido"], #reportesHorasPlantaView[data-dash-style="calido"]{
   --dv-bg:#fbf3ea; --dv-card-bg:#fffaf3; --dv-card-bg2:#fffaf3; --dv-border:#e9d8c3;
   --dv-text:#3a2a1d; --dv-text-muted:#8a7360; --dv-text-muted-2:#8a7360;
   --dv-glow:rgba(139,30,30,.12); --dv-glow-neg:rgba(139,30,30,.15); --dv-glow-pos:rgba(76,122,63,.15);

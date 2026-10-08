@@ -18,10 +18,32 @@
           <p class="subtitle">El rendimiento semanal de cada punto de venta, en un solo lugar: inventario, ventas, compras, margen y utilidad calculados automáticamente y guardados en un historial por sede — todo se procesa en este computador, ningún dato sale de aquí.</p>
         </div>
       </div>
+      <div class="hidden-block" id="userBadge" style="display:flex;align-items:center;gap:10px;">
+        <span id="userBadgeName" style="font-weight:600"></span>
+        <button type="button" class="btn-secondary" id="logoutBtn">Cerrar sesión</button>
+      </div>
     </div>
   </div>
 
-  <div class="card mode-choice" id="modeChoiceCard">
+  <div class="card mode-choice hidden-block" id="loginScreen" style="max-width:420px;margin:0 auto;">
+    <h2 style="margin-top:0">Iniciar sesión</h2>
+    <div class="fields">
+      <div class="field" style="flex:1 1 100%">
+        <label>Usuario</label>
+        <input type="text" id="loginUsernameInput" autocomplete="username">
+      </div>
+      <div class="field" style="flex:1 1 100%">
+        <label>Clave</label>
+        <input type="password" id="loginPasswordInput" autocomplete="current-password">
+      </div>
+    </div>
+    <div class="banner error hidden-block" id="loginErrorBanner"></div>
+    <div class="footer-actions">
+      <button class="btn-primary" id="loginSubmitBtn">Entrar</button>
+    </div>
+  </div>
+
+  <div class="card mode-choice hidden-block" id="modeChoiceCard">
     <h2 style="margin-top:0">¿Qué quieres hacer?</h2>
 
     <button type="button" class="mode-featured" id="modeReportesBtn">
@@ -49,8 +71,13 @@
       </button>
       <button type="button" class="mode-option" id="modeHorasExtrasBtn">
         <span class="mode-eyebrow">⏱ Horas Extras</span>
-        <span class="mode-title">Horas Extras</span>
+        <span class="mode-title">Horas Extras PDV</span>
         <span class="mode-desc">Carga el PDF semanal de Recursos Humanos (Liquidación Detallada, una o varias sedes) para controlar horas extra por empleado y recibir alertas por límite.</span>
+      </button>
+      <button type="button" class="mode-option" id="modeHorasExtrasPlantaBtn">
+        <span class="mode-eyebrow">🏭 Horas Extras</span>
+        <span class="mode-title">Horas Extras Planta</span>
+        <span class="mode-desc">Lo mismo que Horas Extras PDV, pero para el personal de planta — se controla aparte, sin mezclarse con los puntos de venta.</span>
       </button>
       <button type="button" class="mode-option" id="modeAuditoriasBtn">
         <span class="mode-eyebrow">🗒 Auditorías</span>
@@ -250,6 +277,33 @@
     </div>
   </div>
 
+  <div id="horasExtrasPlantaFlow" class="hidden-block">
+    <button type="button" class="btn-secondary back-btn" id="backFromHorasExtrasPlantaBtn">‹ Volver al inicio</button>
+
+    <div class="card">
+      <h2 style="margin-top:0">Cargar horas extra de Planta</h2>
+      <p class="hint">El mismo PDF "Liquidación Detallada" de Recursos Humanos, para el personal de planta — se guarda aparte, no se mezcla con Horas Extras PDV. Volver a subir el mismo reporte no duplica nada (se reafirma por cédula + fecha).</p>
+      <div class="dropzone" id="horasPlantaDropzone">
+        <p class="big">Liquidación Detallada (PDF)</p>
+        <p>Puedes soltar varios archivos a la vez</p>
+        <button type="button" class="dz-btn" onclick="document.getElementById('horasPlantaFileInput').click()">Seleccionar archivo(s)</button>
+        <input type="file" id="horasPlantaFileInput" accept=".pdf" multiple>
+      </div>
+      <div class="banner error hidden-block" id="horasPlantaErrorBanner"></div>
+
+      <div class="hidden-block" id="horasPlantaPreviewCard">
+        <div class="balance-block-title">Archivos cargados</div>
+        <div id="horasPlantaFilesList"></div>
+        <div class="footer-actions">
+          <button class="btn-primary" id="horasPlantaSaveBtn">Guardar todo en el historial</button>
+        </div>
+        <div class="banner info hidden-block" id="horasPlantaSaveBanner"></div>
+      </div>
+
+      <p class="hint" style="margin-top:18px">Las alertas, gráficos y comparativos están en Reportes → "Informe H.E Planta".</p>
+    </div>
+  </div>
+
   <div id="reportesFlow" class="hidden-block">
     <div class="reportes-top-row">
       <button type="button" class="btn-secondary back-btn" id="backFromReportesBtn">‹ Volver al inicio</button>
@@ -259,6 +313,7 @@
     <div class="tabs" id="reportesTypeTabs">
       <button class="tab-btn tab-active" id="reportesTypeBalanceBtn">📊 Informes</button>
       <button type="button" class="btn-secondary" id="reportesUploadBalanceBtn">⬆ Cargar Balance</button>
+      <button class="tab-btn" id="reportesTypeHorasPlantaBtn">🏭 Informe H.E Planta</button>
       <button class="tab-btn" id="reportesTypeMovimientosBtn">📋 Tabla de Movimientos</button>
       <button class="tab-btn" id="reportesTypeAuditoriasBtn">🗒 Auditorías</button>
       <button class="tab-btn" id="reportesTypeVentasBtn">🎯 Presupuesto</button>
@@ -498,6 +553,68 @@
             </table>
           </div>
           <div class="dash-table-wrap hidden-block" id="audVisitaDetalle"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden-block" id="reportesHorasPlantaCard">
+      <div class="dash-header-row">
+        <div>
+          <div class="dash-title">Informe H.E Planta</div>
+          <div class="dash-sub">Control de horas extra del personal de planta — igual que PDV, pero por separado. Alerta roja si un empleado supera 12h extra en la semana, amarilla desde 10h.</div>
+        </div>
+        <button class="btn-secondary" id="horasPlantaDownloadBtn" disabled>⬇ Informe interactivo (HTML)</button>
+      </div>
+      <p class="hint" id="horasPlantaReportesLoadingHint">Cargando historial…</p>
+      <div class="banner error hidden-block" id="horasPlantaReportesErrorBanner"></div>
+
+      <div id="reportesHorasPlantaView" class="hidden-block">
+        <div class="dash-filters">
+          <select id="horasPlantaReportesSedeFilter"></select>
+          <select id="horasPlantaReportesEmpleadoFilter"></select>
+          <select id="horasPlantaReportesGranularity">
+            <option value="week" selected>Semanal</option>
+            <option value="month">Mensual</option>
+            <option value="year">Anual</option>
+          </select>
+          <div class="periodo-picker">
+            <button type="button" class="btn-secondary" id="horasPlantaPeriodBtn">📅 Fechas</button>
+            <div class="periodo-popover hidden-block" id="horasPlantaPeriodPopover">
+              <div class="periodo-popover-actions">
+                <button type="button" id="horasPlantaPeriodAllBtn">Seleccionar todos</button>
+                <button type="button" id="horasPlantaPeriodNoneBtn">Deseleccionar todos</button>
+              </div>
+              <div class="periodo-popover-list" id="horasPlantaPeriodList"></div>
+            </div>
+          </div>
+        </div>
+        <div class="kpi-grid" id="horasPlantaReportesKpiGrid"></div>
+
+        <div class="dash-table-wrap">
+          <div class="dash-table-title" id="horasPlantaAlertasTitle">Alertas — última semana completa con datos</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
+              <tbody id="horasPlantaAlertasTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-charts">
+          <div class="chart-box"><canvas id="chartHorasPlantaTiempo"></canvas></div>
+          <div class="chart-box"><canvas id="chartHorasPlantaRanking"></canvas></div>
+        </div>
+
+        <div class="dash-table-wrap hidden-block" id="horasPlantaEmpleadoDetalle"></div>
+
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">Detalle por periodo</div>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Periodo</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total horas extra</th><th>Total trabajado</th></tr></thead>
+              <tbody id="horasPlantaReportesTableBody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

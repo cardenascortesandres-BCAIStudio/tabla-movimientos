@@ -61,6 +61,9 @@ import { aggregateByPeriod as aggregateVentByPeriod, computeProjection } from '.
 
 import { parsePdfEmpleados } from './horasExtras/horasExtrasPdfLoader.js';
 import * as horasExtrasApi from './horasExtras/horasExtrasApi.js';
+import * as horasExtrasPlantaApi from './horasExtras/horasExtrasPlantaApi.js';
+import * as authClient from './auth/authClient.js';
+import { buildHorasExtrasPlantaReportHtml } from './export/horasExtrasPlantaReportExport.js';
 import {
   aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
   computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, LIMITE_SEMANAL, UMBRAL_ALERTA
@@ -466,7 +469,12 @@ function switchFlow(flow) {
   el('auditoriasFlow').classList.toggle('hidden-block', flow !== 'auditorias');
   el('ventasFlow').classList.toggle('hidden-block', flow !== 'ventas');
   el('horasExtrasFlow').classList.toggle('hidden-block', flow !== 'horasExtras');
-  if (flow === 'reportes' && !reportesWeeks) loadReportesData();
+  el('horasExtrasPlantaFlow').classList.toggle('hidden-block', flow !== 'horasExtrasPlanta');
+  // El rol 'planta' no tiene acceso a /api/balance (403 del servidor) — para
+  // ese rol "Reportes" solo debe cargar su propio historial (ver
+  // applyRoleRestrictions/switchReportesType('horasPlanta')), nunca el
+  // dashboard unificado de Balance.
+  if (flow === 'reportes' && !reportesWeeks && (!currentUser || currentUser.role !== 'planta')) loadReportesData();
   if (flow === 'auditorias' && !auditBlocksRendered) { renderAuditBlocks(); auditBlocksRendered = true; }
 }
 
@@ -1262,15 +1270,18 @@ let reportesType = 'balance';
 function switchReportesType(type) {
   reportesType = type;
   el('reportesTypeBalanceBtn').classList.toggle('tab-active', type === 'balance');
+  el('reportesTypeHorasPlantaBtn').classList.toggle('tab-active', type === 'horasPlanta');
   el('reportesTypeMovimientosBtn').classList.toggle('tab-active', type === 'movimientos');
   el('reportesTypeAuditoriasBtn').classList.toggle('tab-active', type === 'auditorias');
   el('reportesTypeVentasBtn').classList.toggle('tab-active', type === 'ventas');
   el('reportesCard').classList.toggle('hidden-block', type !== 'balance');
+  el('reportesHorasPlantaCard').classList.toggle('hidden-block', type !== 'horasPlanta');
   el('reportesMovCard').classList.toggle('hidden-block', type !== 'movimientos');
   el('reportesAudCard').classList.toggle('hidden-block', type !== 'auditorias');
   el('reportesVentCard').classList.toggle('hidden-block', type !== 'ventas');
   if (type === 'auditorias' && !audHistAudits) loadAudReportesData();
   if (type === 'ventas' && !ventasAllDias) loadVentReportesData();
+  if (type === 'horasPlanta' && !horasPlantaAllDias) loadHorasPlantaReportesData();
 }
 
 // ---------------- Reportes de Tabla de Movimientos ----------------
@@ -2200,7 +2211,10 @@ function renderPresupuestoTable() {
 // Ventas) — por eso el uploader no necesita ni sede ni fecha por archivo,
 // solo lista lo que se detectó y deja "Quitar" para descartar un archivo
 // que no calce.
-function createHorasUploader(ids, onSaved) {
+// `api` es horasExtrasApi (PDV) u horasExtrasPlantaApi (Planta) — mismo
+// parser/validación, solo cambia a qué historial (y por lo tanto a qué
+// tabla en el backend) se guarda.
+function createHorasUploader(ids, api, onSaved) {
   let entries = []; // { fileName, error?, empleados, omitidas }
 
   function render() {
@@ -2272,7 +2286,7 @@ function createHorasUploader(ids, onSaved) {
     banner.className = 'banner info'; banner.classList.remove('hidden-block');
     banner.textContent = `Guardando ${dias.length} registro(s)…`;
     try {
-      await horasExtrasApi.saveDias(dias);
+      await api.saveDias(dias);
     } catch (err) {
       btn.disabled = false; btn.textContent = originalText;
       banner.className = 'banner error';
@@ -2284,7 +2298,6 @@ function createHorasUploader(ids, onSaved) {
     banner.textContent = `✓ ${dias.length} registro(s) guardado(s) en el historial.`;
     entries = [];
     render();
-    horasExtrasAllDias = null; // fuerza recarga
     if (onSaved) await onSaved();
   }
 
@@ -2294,12 +2307,25 @@ function createHorasUploader(ids, onSaved) {
 const horasUploader = createHorasUploader({
   filesList: 'horasFilesList', previewCard: 'horasPreviewCard', errorBanner: 'horasErrorBanner',
   saveBtn: 'horasSaveBtn', saveBanner: 'horasSaveBanner'
-}, async () => {
+}, horasExtrasApi, async () => {
   try {
     const { dias } = await horasExtrasApi.getAllDias();
     horasExtrasAllDias = dias || [];
   } catch { /* silencioso: el histórico se refresca solo la próxima vez que cargue */ }
   if (reportesWeeks) renderReportes(); // refresca la sub-vista "⏱ Horas Extras" si está unificada y visible
+});
+
+// Horas Extras Planta: mismo uploader (mismo PDF, mismo parser), apuntando
+// al historial y endpoint separados — ver src/horasExtras/horasExtrasPlantaApi.js.
+const horasPlantaUploader = createHorasUploader({
+  filesList: 'horasPlantaFilesList', previewCard: 'horasPlantaPreviewCard', errorBanner: 'horasPlantaErrorBanner',
+  saveBtn: 'horasPlantaSaveBtn', saveBanner: 'horasPlantaSaveBanner'
+}, horasExtrasPlantaApi, async () => {
+  try {
+    const { dias } = await horasExtrasPlantaApi.getAllDias();
+    horasPlantaAllDias = dias || [];
+  } catch { /* silencioso: el histórico se refresca solo la próxima vez que cargue */ }
+  if (horasPlantaAllDias) renderReportesHorasPlantaView();
 });
 
 // ---------------- Reportes de Horas Extras (unificado en "📊 Informes", junto a Mermas) ----------------
@@ -2416,6 +2442,203 @@ function renderHorasEmpleadoDetalle() {
   el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; renderHorasEmpleadoDetalle(); });
 }
 
+// ---------------- "Informe H.E Planta" (tarjeta standalone en Reportes) ----------------
+// A diferencia de "⏱ Horas Extras" (PDV), que vive DENTRO del dashboard
+// unificado de "📊 Informes" como una sub-vista más, este informe es su
+// PROPIA tarjeta (reportesHorasPlantaCard, al lado de "📊 Informes" en
+// reportesTypeTabs) — precisamente para poder restringirlo por separado: el
+// rol 'planta' solo tiene acceso a /api/horas-extras-planta (ver
+// server/index.js), así que no puede cargar el resto del dashboard unificado
+// (balance/ventas/mermas) aunque solo fuera para mostrar en blanco las otras
+// sub-vistas. Mismo patrón visual/alertas que renderReportesHorasView, con
+// su propio estado (no comparte reportesHorasSelectedPeriods ni el popover
+// de fechas de Balance/Mermas/Horas PDV).
+let horasPlantaAllDias = null; // filas crudas de horas_extra_planta_dias (todas las sedes)
+let chartHorasPlantaTiempo, chartHorasPlantaRanking;
+let horasPlantaSelectedPeriods = null; // Set<periodKey> | null (null = todos)
+let horasPlantaEmpleadoSel = null, horasPlantaCtx = null;
+
+async function loadHorasPlantaReportesData() {
+  el('reportesHorasPlantaView').classList.add('hidden-block');
+  el('horasPlantaReportesErrorBanner').classList.add('hidden-block');
+  el('horasPlantaReportesLoadingHint').classList.remove('hidden-block');
+  el('horasPlantaReportesLoadingHint').textContent = 'Cargando historial…';
+  try {
+    const { dias, fromCache } = await horasExtrasPlantaApi.getAllDias();
+    horasPlantaAllDias = dias || [];
+    if (!horasPlantaAllDias.length) {
+      el('horasPlantaReportesLoadingHint').textContent = 'Todavía no hay horas extra de planta guardadas en el historial.';
+      return;
+    }
+    el('horasPlantaReportesLoadingHint').classList.toggle('hidden-block', !fromCache);
+    if (fromCache) el('horasPlantaReportesLoadingHint').textContent = 'Mostrando el último historial disponible en este equipo (sin conexión con el servidor ahora mismo).';
+    el('reportesHorasPlantaView').classList.remove('hidden-block');
+    el('horasPlantaDownloadBtn').disabled = false;
+    renderReportesHorasPlantaView();
+  } catch (err) {
+    el('horasPlantaReportesLoadingHint').classList.add('hidden-block');
+    const b = el('horasPlantaReportesErrorBanner');
+    b.classList.remove('hidden-block');
+    b.innerHTML = '⚠ No se pudo cargar el historial: ' + escapeHtml(err.message);
+  }
+}
+
+function renderHorasPlantaPeriodPopover(periodKeys, periodLabelOf) {
+  const list = el('horasPlantaPeriodList');
+  list.innerHTML = periodKeys.slice().reverse().map(k => {
+    const checked = !horasPlantaSelectedPeriods || horasPlantaSelectedPeriods.has(k);
+    return `<label><input type="checkbox" data-period="${escapeHtml(k)}" ${checked ? 'checked' : ''}> ${escapeHtml(periodLabelOf(k))}</label>`;
+  }).join('');
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      if (!horasPlantaSelectedPeriods) horasPlantaSelectedPeriods = new Set(periodKeys);
+      const k = cb.dataset.period;
+      if (cb.checked) horasPlantaSelectedPeriods.add(k);
+      else if (horasPlantaSelectedPeriods.size > 1) horasPlantaSelectedPeriods.delete(k);
+      else cb.checked = true; // siempre debe quedar al menos 1 periodo
+      if (horasPlantaSelectedPeriods.size === periodKeys.length) horasPlantaSelectedPeriods = null;
+      renderReportesHorasPlantaView();
+    });
+  });
+  const n = horasPlantaSelectedPeriods ? horasPlantaSelectedPeriods.size : periodKeys.length;
+  el('horasPlantaPeriodBtn').textContent = n === periodKeys.length ? '📅 Fechas (todas)' : `📅 Fechas (${n})`;
+}
+
+function initHorasPlantaPeriodPopover() {
+  const btn = el('horasPlantaPeriodBtn'), popover = el('horasPlantaPeriodPopover');
+  btn.addEventListener('click', (e) => { e.stopPropagation(); popover.classList.toggle('hidden-block'); });
+  document.addEventListener('click', (e) => { if (!popover.contains(e.target) && e.target !== btn) popover.classList.add('hidden-block'); });
+  el('horasPlantaPeriodAllBtn').addEventListener('click', () => {
+    horasPlantaSelectedPeriods = null;
+    popover.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
+    renderReportesHorasPlantaView();
+  });
+  el('horasPlantaPeriodNoneBtn').addEventListener('click', () => {
+    const boxes = Array.from(popover.querySelectorAll('input[type=checkbox]'));
+    if (!boxes.length) return;
+    horasPlantaSelectedPeriods = new Set([boxes[0].dataset.period]); // siempre queda al menos 1
+    renderReportesHorasPlantaView();
+  });
+}
+
+function renderReportesHorasPlantaView() {
+  if (!horasPlantaAllDias || !horasPlantaAllDias.length) return;
+
+  // Calendario propio (el botón "📅 Fechas"): con un solo mes/año cargado se baja a semanas.
+  let gran = el('horasPlantaReportesGranularity').value;
+  let cal = aggregateHorasBySede(horasPlantaAllDias, gran);
+  if (cal.periodKeysSorted.length < 2 && gran !== 'week') { gran = 'week'; cal = aggregateHorasBySede(horasPlantaAllDias, gran); }
+  renderHorasPlantaPeriodPopover(cal.periodKeysSorted, k => (cal.byPeriod.get(k) || [])[0]?.periodLabel || k);
+  const selectedSet = horasPlantaSelectedPeriods || new Set(cal.periodKeysSorted);
+  const scopedAll = horasPlantaAllDias.filter(r => selectedSet.has(horasPeriodKeyFor(r.fecha, gran)));
+
+  const sedeSel = el('horasPlantaReportesSedeFilter');
+  const prevSede = sedeSel.value;
+  const allSedeNames = Array.from(new Set(horasPlantaAllDias.map(r => r.sede_name))).sort();
+  sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + allSedeNames.map(s => `<option>${escapeHtml(s)}</option>`).join('');
+  if (allSedeNames.includes(prevSede)) sedeSel.value = prevSede;
+  const sedeFilter = sedeSel.value;
+
+  const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sede_name === sedeFilter) : scopedAll;
+  const empleadoNames = Array.from(new Map(rowsInSede.map(r => [r.empleado_id, r.empleado_nombre])).entries());
+  const empSel = el('horasPlantaReportesEmpleadoFilter');
+  const prevEmp = empSel.value;
+  empSel.innerHTML = '<option value="">Todos los empleados</option>' + empleadoNames.map(([id, nombre]) => `<option value="${escapeHtml(id)}">${escapeHtml(nombre)}</option>`).join('');
+  if (empleadoNames.some(([id]) => id === prevEmp)) empSel.value = prevEmp;
+  const empleadoFilter = empSel.value;
+  const rows = empleadoFilter ? rowsInSede.filter(r => r.empleado_id === empleadoFilter) : rowsInSede;
+
+  const { lastWeek, alertas } = computeHorasAlertas(scopedAll, sedeFilter);
+  const corte = horasCorteLabel(horasPlantaAllDias);
+  const rojos = alertas.filter(a => a.nivel === 'rojo');
+  const amarillos = alertas.filter(a => a.nivel === 'amarillo');
+  const topEmpleado = alertas[0];
+
+  el('horasPlantaReportesKpiGrid').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">${new Set(rowsInSede.map(r => r.empleado_id)).size}</div></div>
+    <div class="kpi-card ${rojos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🔴 Pasados del límite (${LIMITE_SEMANAL}h/semana)</div><div class="kpi-value">${rojos.length}</div></div>
+    <div class="kpi-card ${amarillos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🟡 Por pasarse (≥ ${UMBRAL_ALERTA}h/semana)</div><div class="kpi-value">${amarillos.length}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Más horas extra — ${lastWeek ? 'semana del ' + lastWeek : 'última semana'}</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
+
+  el('horasPlantaAlertasTitle').textContent = 'Alertas — ' + (lastWeek ? 'semana del ' + lastWeek : 'última semana completa con datos');
+  el('horasPlantaAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
+    const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
+    const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
+    return `<tr class="row-click" data-emp="${escapeHtml(a.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos'}.</td></tr>`;
+
+  const sedeData = aggregateHorasBySede(rows, gran);
+  const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
+  const tiempoValues = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || []).reduce((a, p) => a + p.horaExtra, 0));
+  if (chartHorasPlantaTiempo) chartHorasPlantaTiempo.destroy();
+  chartHorasPlantaTiempo = new Chart(el('chartHorasPlantaTiempo').getContext('2d'), {
+    type: 'line', data: { labels: tiempoLabels, datasets: [{ label: 'Horas extra', data: tiempoValues, borderColor: SEDE_PALETTE[0], backgroundColor: SEDE_PALETTE[0], tension: .25 }] },
+    options: dashboardChartOptions(['Horas extra en el tiempo' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'reportesHorasPlantaView')
+  });
+
+  const top = findTopEmpleados(rows, 12);
+  const rankLabels = top.map(e => e.nombre);
+  const rankValues = top.map(e => e.horaExtra);
+  if (chartHorasPlantaRanking) chartHorasPlantaRanking.destroy();
+  chartHorasPlantaRanking = new Chart(el('chartHorasPlantaRanking').getContext('2d'), {
+    type: 'bar', data: { labels: rankLabels, datasets: [{ data: rankValues, backgroundColor: chartColors(rankValues, 'reportesHorasPlantaView'), borderRadius: 6 }] },
+    options: Object.assign(dashboardChartOptions(['Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'reportesHorasPlantaView'), { indexAxis: 'y', onClick: (evt, els) => { if (els.length) { horasPlantaEmpleadoSel = top[els[0].index].empleadoId; renderHorasPlantaEmpleadoDetalle(); el('horasPlantaEmpleadoDetalle').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } } })
+  });
+
+  const empData = aggregateHorasByEmpleado(rows, gran);
+  const detalleRows = [];
+  empData.byEmpleado.forEach(entry => entry.points.forEach(p => detalleRows.push({ ...p })));
+  detalleRows.sort((a, b) => (a.periodKey < b.periodKey ? 1 : -1));
+  el('horasPlantaReportesTableBody').innerHTML = detalleRows.map(r => {
+    const cls = r.horaExtra > LIMITE_SEMANAL && gran === 'week' ? 'diff-neg' : '';
+    return `<tr class="row-click" data-emp="${escapeHtml(r.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(r.nombre)}</td><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td class="${cls}"><b>${fmt(r.horaExtra)}</b></td><td>${fmt(r.total)}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="left hint">Sin datos para este filtro.</td></tr>';
+  horasPlantaCtx = { scopedAll, gran };
+  renderHorasPlantaEmpleadoDetalle();
+}
+
+function renderHorasPlantaEmpleadoDetalle() {
+  const box = el('horasPlantaEmpleadoDetalle');
+  const rows = (horasPlantaEmpleadoSel && horasPlantaCtx) ? horasPlantaCtx.scopedAll.filter(r => r.empleado_id === horasPlantaEmpleadoSel) : [];
+  if (!rows.length) { box.classList.add('hidden-block'); return; }
+  const last = rows.reduce((m, r) => (String(r.fecha) > String(m.fecha) ? r : m), rows[0]);
+  const t = sumDesglose(rows);
+  const fila = ([k, label]) => `<tr><td class="left">${label}</td><td>${fmt(t[k])}</td></tr>`;
+  const dias = rows.slice().sort((a, b) => (String(a.fecha) < String(b.fecha) ? -1 : 1)).map(r => {
+    const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
+    const nom = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getUTCDay()];
+    const estado = r.estado_dia === 'inasistencia' ? 'Inasistencia' : r.estado_dia === 'descanso' ? 'Descanso' : '';
+    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
+  }).join('');
+  box.innerHTML = `<div class="dash-table-title">Detalle de ${escapeHtml(last.empleado_nombre)} — ${escapeHtml(last.sede_name)}${last.cargo ? ' · ' + escapeHtml(last.cargo) : ''} <button type="button" class="btn-tiny" id="horasPlantaEmpleadoCerrar" style="float:right">✕ Cerrar</button></div>
+    <div class="dash-charts">
+      <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_EXTRA.map(fila).join('')}<tr><td class="left"><b>Total general horas extra</b></td><td><b>${fmt(t.extra)}</b></td></tr></tbody></table></div>
+      <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_OTROS.map(fila).join('')}<tr><td class="left"><b>Total trabajado</b></td><td><b>${fmt(t.total)}</b></td></tr></tbody></table></div>
+    </div>
+    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
+  box.classList.remove('hidden-block');
+  el('horasPlantaEmpleadoCerrar').addEventListener('click', () => { horasPlantaEmpleadoSel = null; renderHorasPlantaEmpleadoDetalle(); });
+}
+
+// Vuelve a pedir el historial completo a la API (en vez de usar lo que ya
+// está en memoria) antes de generar el HTML — mismo criterio que
+// downloadReportesReport, para no exportar un informe desactualizado si el
+// usuario acaba de guardar algo nuevo sin recargar la pantalla.
+async function downloadHorasPlantaReport() {
+  if (!horasPlantaAllDias) return;
+  const btn = el('horasPlantaDownloadBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Generando…';
+  try {
+    const { dias } = await horasExtrasPlantaApi.getAllDias().catch(() => ({ dias: horasPlantaAllDias || [] }));
+    horasPlantaAllDias = dias || horasPlantaAllDias;
+    const html = buildHorasExtrasPlantaReportHtml(horasPlantaAllDias, chartJsRawSource, { appBuild: APP_BUILD });
+    downloadBlob(html, stampName('informe_he_planta'), 'text/html');
+  } finally {
+    btn.disabled = false; btn.textContent = originalText;
+  }
+}
+
 
 // ---------------- Modo claro/oscuro (paneles tipo dashboard) ----------------
 // Los 6 paneles con fondo oscuro ("estilo Power BI") son los únicos oscuros
@@ -2423,7 +2646,7 @@ function renderHorasEmpleadoDetalle() {
 // variables --dv-* ya definidas para el estilo "minimalista" (blanco) en vez
 // de inventar un tema nuevo — ver el bloque de comentario en main.css sobre
 // los 5 estilos seleccionables del Panel comparativo.
-const DASH_STYLE_CONTAINER_IDS = ['dashboardView', 'balanceResultsView', 'reportesView', 'reportesMovView', 'reportesAudView'];
+const DASH_STYLE_CONTAINER_IDS = ['dashboardView', 'balanceResultsView', 'reportesView', 'reportesMovView', 'reportesAudView', 'reportesHorasPlantaView'];
 let themeMode = localStorage.getItem('themeMode') || 'dark';
 
 function applyThemeMode() {
@@ -2435,12 +2658,104 @@ function applyThemeMode() {
   if (reportesWeeks) renderReportes();
   if (movHistWeeks) renderMovHist();
   if (audHistAudits) renderAudReportes();
+  if (horasPlantaAllDias) renderReportesHorasPlantaView();
 }
 
 function toggleThemeMode() {
   themeMode = themeMode === 'light' ? 'dark' : 'light';
   try { localStorage.setItem('themeMode', themeMode); } catch { /* almacenamiento no disponible: se ignora */ }
   applyThemeMode();
+}
+
+// ---------------- Autenticación ----------------
+// El servidor es la autoridad real (ver server/auth.js: requireAuth/
+// requireFullAccess se aplican a CADA request /api/*) — esto de acá es solo
+// para que la pantalla muestre lo correcto; un 403 del backend sigue siendo
+// la última palabra aunque algo quedara visible por error.
+let currentUser = null; // { username, displayName, role } | null
+
+// Oculta del todo lo que el rol 'planta' no debe ver: en la pantalla
+// inicial, todas las tarjetas de carga menos "Horas Extras Planta"; dentro
+// de Reportes, todas las pestañas menos "Informe H.E Planta" (a la que se
+// cambia automáticamente). El rol 'full' (Andrés/Johana) ve todo —
+// reaplicar esta función con currentUser=null (logout) restaura todo.
+function applyRoleRestrictions() {
+  const isPlanta = currentUser && currentUser.role === 'planta';
+  ['modeBalanceBtn', 'modeMovimientosBtn', 'modeVentasBtn', 'modeHorasExtrasBtn', 'modeAuditoriasBtn'].forEach(id => {
+    el(id).classList.toggle('hidden-block', isPlanta);
+  });
+  ['reportesTypeBalanceBtn', 'reportesUploadBalanceBtn', 'reportesTypeMovimientosBtn', 'reportesTypeAuditoriasBtn', 'reportesTypeVentasBtn'].forEach(id => {
+    el(id).classList.toggle('hidden-block', isPlanta);
+  });
+  if (isPlanta) switchReportesType('horasPlanta');
+}
+
+function showAuthenticated() {
+  el('loginScreen').classList.add('hidden-block');
+  el('userBadge').classList.remove('hidden-block');
+  el('userBadgeName').textContent = currentUser.displayName || currentUser.username;
+  applyRoleRestrictions();
+  el('modeChoiceCard').classList.remove('hidden-block');
+  switchFlow('choice');
+}
+
+function showLoginScreen() {
+  el('modeChoiceCard').classList.add('hidden-block');
+  el('userBadge').classList.add('hidden-block');
+  el('loginScreen').classList.remove('hidden-block');
+}
+
+async function bootstrapAuth() {
+  // La versión "doble clic" (dist/index.html, ver vite.config.js) no tiene
+  // backend — abre como file:// y no hay ningún servidor contra el cual
+  // iniciar sesión. El login real es para la versión web (Render), así que
+  // acá se preserva el comportamiento de siempre: acceso directo, sin login
+  // (mismo criterio que ensureLatestVersion() para distinguir esta variante).
+  if (location.protocol === 'file:') {
+    currentUser = { username: 'local', displayName: 'Local', role: 'full' };
+    showAuthenticated();
+    return;
+  }
+  try {
+    currentUser = await authClient.getCurrentUser();
+  } catch {
+    // Sin conexión con el servidor: nunca se asume una sesión válida sin
+    // confirmación del propio servidor (ver src/auth/authClient.js).
+    currentUser = null;
+  }
+  if (currentUser) showAuthenticated(); else showLoginScreen();
+}
+
+async function handleLoginSubmit() {
+  const username = el('loginUsernameInput').value.trim();
+  const password = el('loginPasswordInput').value;
+  const banner = el('loginErrorBanner');
+  banner.classList.add('hidden-block');
+  if (!username || !password) {
+    banner.textContent = '⚠ Escribe usuario y clave.';
+    banner.classList.remove('hidden-block');
+    return;
+  }
+  const btn = el('loginSubmitBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Entrando…';
+  try {
+    const { username: u, displayName, role } = await authClient.login(username, password);
+    currentUser = { username: u, displayName, role };
+    el('loginPasswordInput').value = '';
+    showAuthenticated();
+  } catch (err) {
+    banner.textContent = '⚠ ' + (err.message || 'Usuario o clave incorrectos.');
+    banner.classList.remove('hidden-block');
+  } finally {
+    btn.disabled = false; btn.textContent = originalText;
+  }
+}
+
+async function handleLogout() {
+  try { await authClient.logout(); } catch { /* best-effort: igual se limpia la sesión del lado del cliente */ }
+  currentUser = null;
+  showLoginScreen();
 }
 
 // ---------------- Init ----------------
@@ -2496,6 +2811,7 @@ document.querySelectorAll('#reportesMermasSubTabs .tab-btn').forEach(btn => {
 });
 
 el('reportesTypeBalanceBtn').addEventListener('click', () => switchReportesType('balance'));
+el('reportesTypeHorasPlantaBtn').addEventListener('click', () => switchReportesType('horasPlanta'));
 el('reportesTypeMovimientosBtn').addEventListener('click', () => switchReportesType('movimientos'));
 el('reportesTypeAuditoriasBtn').addEventListener('click', () => switchReportesType('auditorias'));
 wireMultiFileDropzone('movDropzone', 'movFileInput', movUploader.handleFiles);
@@ -2540,10 +2856,34 @@ for (const id of ['horasAlertasTableBody', 'horasReportesTableBody']) {
   });
 }
 
+el('modeHorasExtrasPlantaBtn').addEventListener('click', () => switchFlow('horasExtrasPlanta'));
+el('backFromHorasExtrasPlantaBtn').addEventListener('click', () => switchFlow('choice'));
+wireMultiFileDropzone('horasPlantaDropzone', 'horasPlantaFileInput', horasPlantaUploader.handleFiles);
+el('horasPlantaSaveBtn').addEventListener('click', horasPlantaUploader.saveAll);
+el('horasPlantaReportesSedeFilter').addEventListener('change', renderReportesHorasPlantaView);
+el('horasPlantaReportesEmpleadoFilter').addEventListener('change', renderReportesHorasPlantaView);
+el('horasPlantaReportesGranularity').addEventListener('change', () => { horasPlantaSelectedPeriods = null; renderReportesHorasPlantaView(); });
+el('horasPlantaDownloadBtn').addEventListener('click', downloadHorasPlantaReport);
+initHorasPlantaPeriodPopover();
+for (const id of ['horasPlantaAlertasTableBody', 'horasPlantaReportesTableBody']) {
+  el(id).addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-emp]');
+    if (!tr) return;
+    horasPlantaEmpleadoSel = tr.dataset.emp;
+    renderHorasPlantaEmpleadoDetalle();
+    el('horasPlantaEmpleadoDetalle').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+}
+
 el('themeModeToggleBtn').addEventListener('click', toggleThemeMode);
 initPeriodPopover('reportesPeriodBtn', 'reportesPeriodPopover', 'reportesPeriodAllBtn', 'reportesPeriodNoneBtn');
 applyThemeMode();
 wireMultiFileDropzone('presuDropzone', 'presuFileInput', presuUploader.handleFiles);
 el('presuSaveBtn').addEventListener('click', presuUploader.saveAll);
 
-switchFlow('choice');
+el('loginSubmitBtn').addEventListener('click', handleLoginSubmit);
+el('loginPasswordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLoginSubmit(); });
+el('loginUsernameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLoginSubmit(); });
+el('logoutBtn').addEventListener('click', handleLogout);
+
+bootstrapAuth();

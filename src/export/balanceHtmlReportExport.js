@@ -203,7 +203,10 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-const VIEWER_CSS = `
+// Exportado para que src/export/horasExtrasPlantaReportExport.js (informe
+// standalone de Horas Extras Planta) reuse el mismo tema visual sin duplicar
+// este bloque — mismo criterio que CHART_DOWNLOAD_JS/SEDE_PALETTE_JS.
+export const VIEWER_CSS = `
 :root{ --dash-bg:#0b0f1c; --panel-bg:#111527; --text:#eaf0ff; --muted:#8892b0; --border:rgba(255,255,255,.08); }
 body.theme-light{ --dash-bg:#f3f5fa; --panel-bg:#ffffff; --text:#1b2033; --muted:#5b647d; --border:rgba(0,0,0,.08); }
 *{box-sizing:border-box;}

@@ -19,7 +19,9 @@
     "start:web": "node server/index.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "chart.js": "^4.5.0",
+    "cookie-parser": "^1.4.7",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "pdfjs-dist": "^6.3.289",
