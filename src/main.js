@@ -2686,17 +2686,26 @@ let currentUser = null; // { username, displayName, role } | null
 // Oculta del todo lo que el rol 'planta' no debe ver: en la pantalla
 // inicial, todas las tarjetas de carga menos "Horas Extras Planta"; dentro
 // de Reportes, todas las pestañas menos "Informe H.E Planta" (a la que se
-// cambia automáticamente). El rol 'full' (Andrés/Johana) ve todo —
-// reaplicar esta función con currentUser=null (logout) restaura todo.
+// cambia automáticamente). El rol 'full' (Johana) ve todo ESO, pero el
+// panel "👥 Usuarios" queda exclusivo de 'admin' (Andrés, el creador de la
+// plataforma) — ni 'full' ni 'planta' lo ven, a pedido explícito del
+// usuario. Reaplicar esta función con currentUser=null (logout) restaura
+// todo lo demás.
 function applyRoleRestrictions() {
   const isPlanta = currentUser && currentUser.role === 'planta';
+  const isAdmin = currentUser && currentUser.role === 'admin';
   ['modeBalanceBtn', 'modeMovimientosBtn', 'modeVentasBtn', 'modeHorasExtrasBtn', 'modeAuditoriasBtn'].forEach(id => {
     el(id).classList.toggle('hidden-block', isPlanta);
   });
-  ['reportesTypeBalanceBtn', 'reportesUploadBalanceBtn', 'reportesTypeMovimientosBtn', 'reportesTypeAuditoriasBtn', 'reportesTypeVentasBtn', 'reportesTypeUsuariosBtn'].forEach(id => {
+  ['reportesTypeBalanceBtn', 'reportesUploadBalanceBtn', 'reportesTypeMovimientosBtn', 'reportesTypeAuditoriasBtn', 'reportesTypeVentasBtn'].forEach(id => {
     el(id).classList.toggle('hidden-block', isPlanta);
   });
+  el('reportesTypeUsuariosBtn').classList.toggle('hidden-block', !isAdmin);
   if (isPlanta) switchReportesType('horasPlanta');
+  // Si alguien sin ser 'admin' queda viendo "👥 Usuarios" (p. ej. un cambio
+  // de sesión en la misma pestaña sin recargar), se saca de ahí de una vez
+  // — la pestaña ya está oculta arriba, pero esto además limpia la tarjeta.
+  else if (!isAdmin && reportesType === 'usuarios') switchReportesType('balance');
 }
 
 // Sondeo periódico de /api/auth/me mientras la sesión está abierta — además
@@ -2843,6 +2852,46 @@ function stopUsuariosAutoRefresh() {
   if (usuariosRefreshTimer) { clearInterval(usuariosRefreshTimer); usuariosRefreshTimer = null; }
 }
 
+// Cambiar clave — el servidor también exige rol 'admin' (403 para cualquier
+// otro), así que este formulario solo tiene efecto real para ese usuario
+// aunque alguien más lo intentara ver.
+async function handleChangePasswordSubmit() {
+  const currentPassword = el('changePwCurrentInput').value;
+  const newPassword = el('changePwNewInput').value;
+  const confirm = el('changePwConfirmInput').value;
+  const errBanner = el('changePwErrorBanner'), okBanner = el('changePwSuccessBanner');
+  errBanner.classList.add('hidden-block'); okBanner.classList.add('hidden-block');
+  if (!currentPassword || !newPassword || !confirm) {
+    errBanner.textContent = '⚠ Completa los 3 campos.';
+    errBanner.classList.remove('hidden-block');
+    return;
+  }
+  if (newPassword.length < 8) {
+    errBanner.textContent = '⚠ La clave nueva debe tener al menos 8 caracteres.';
+    errBanner.classList.remove('hidden-block');
+    return;
+  }
+  if (newPassword !== confirm) {
+    errBanner.textContent = '⚠ La clave nueva y su confirmación no coinciden.';
+    errBanner.classList.remove('hidden-block');
+    return;
+  }
+  const btn = el('changePwSubmitBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Cambiando…';
+  try {
+    await authClient.changePassword(currentPassword, newPassword);
+    el('changePwCurrentInput').value = ''; el('changePwNewInput').value = ''; el('changePwConfirmInput').value = '';
+    okBanner.textContent = '✓ Clave cambiada. La próxima vez que inicies sesión usa la nueva.';
+    okBanner.classList.remove('hidden-block');
+  } catch (err) {
+    errBanner.textContent = '⚠ ' + (err.message || 'No se pudo cambiar la clave.');
+    errBanner.classList.remove('hidden-block');
+  } finally {
+    btn.disabled = false; btn.textContent = originalText;
+  }
+}
+
 // ---------------- Init ----------------
 // NOTA: los scripts type="module" siempre se ejecutan después de que el HTML
 // terminó de parsearse (misma garantía que un script "defer"), así que aquí
@@ -2898,6 +2947,7 @@ document.querySelectorAll('#reportesMermasSubTabs .tab-btn').forEach(btn => {
 el('reportesTypeBalanceBtn').addEventListener('click', () => switchReportesType('balance'));
 el('reportesTypeHorasPlantaBtn').addEventListener('click', () => switchReportesType('horasPlanta'));
 el('reportesTypeUsuariosBtn').addEventListener('click', () => switchReportesType('usuarios'));
+el('changePwSubmitBtn').addEventListener('click', handleChangePasswordSubmit);
 el('reportesTypeMovimientosBtn').addEventListener('click', () => switchReportesType('movimientos'));
 el('reportesTypeAuditoriasBtn').addEventListener('click', () => switchReportesType('auditorias'));
 wireMultiFileDropzone('movDropzone', 'movFileInput', movUploader.handleFiles);

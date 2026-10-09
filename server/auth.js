@@ -94,9 +94,19 @@ export function requireAuth(req, res, next) {
   next();
 }
 
-// Requiere rol 'full' — el rol 'planta' recibe 403 acá, aunque pida la URL
-// directo (no depende de que la pantalla le oculte el botón).
+// Requiere rol 'full' o 'admin' (el creador de la plataforma — ver
+// requireAdmin más abajo, un nivel por encima de 'full') — el rol 'planta'
+// recibe 403 acá, aunque pida la URL directo (no depende de que la pantalla
+// le oculte el botón).
 export function requireFullAccess(req, res, next) {
-  if (req.user?.role !== 'full') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
+  if (req.user?.role !== 'full' && req.user?.role !== 'admin') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
+  next();
+}
+
+// Requiere rol 'admin' — hoy es exclusivo del creador de la plataforma
+// (Andrés), para el panel "👥 Usuarios": ni 'full' (Johana) ni 'planta'
+// pueden pedirlo, aunque sea directo por URL.
+export function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
   next();
 }

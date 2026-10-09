@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query, isDbConfigured } from '../db.js';
-import { verifyCredentials, setSessionCookie, clearSessionCookie, getSessionUser, touchLastSeen, requireAuth, requireFullAccess } from '../auth.js';
+import { verifyCredentials, setSessionCookie, clearSessionCookie, getSessionUser, touchLastSeen, hashPassword, requireAuth, requireAdmin } from '../auth.js';
 
 export const authRouter = Router();
 
@@ -40,10 +40,10 @@ authRouter.get('/me', (req, res) => {
 });
 
 // Quién está en línea ahora mismo y cuándo ingresó/actuó por última vez cada
-// usuario — solo para el rol 'full' (el creador de la plataforma y quien
-// más acceso tenga), aunque /api/auth esté montado público en server/index.js
-// (de ahí requireAuth + requireFullAccess acá mismo, en la ruta puntual).
-authRouter.get('/users', requireAuth, requireFullAccess, async (req, res, next) => {
+// usuario — exclusivo del rol 'admin' (el creador de la plataforma; ni
+// 'full' ni 'planta' lo ven), aunque /api/auth esté montado público en
+// server/index.js (de ahí requireAuth + requireAdmin acá mismo, en la ruta puntual).
+authRouter.get('/users', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     if (!isDbConfigured()) return res.status(503).json({ error: 'La base de datos no está configurada todavía.' });
     const { rows } = await query(
@@ -53,5 +53,25 @@ authRouter.get('/users', requireAuth, requireFullAccess, async (req, res, next) 
        from app_users order by display_name asc`
     );
     res.json({ users: rows });
+  } catch (err) { next(err); }
+});
+
+// Cambiar clave — exclusivo del rol 'admin', a pedido explícito del usuario
+// ("permíteme solo a mi usuario cambiar la contraseña"): ni 'full' ni
+// 'planta' pueden llamar esta ruta, aunque la pidan directo. Siempre opera
+// sobre la CUENTA DE LA PROPIA SESIÓN (req.user.username) — no recibe
+// ningún username en el body, así que tampoco sirve para cambiarle la clave
+// a otra persona.
+authRouter.post('/change-password', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!isDbConfigured()) return res.status(503).json({ error: 'La base de datos no está configurada todavía.' });
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Falta la clave actual o la nueva.' });
+    if (String(newPassword).length < 8) return res.status(400).json({ error: 'La clave nueva debe tener al menos 8 caracteres.' });
+    const ok = await verifyCredentials(req.user.username, currentPassword);
+    if (!ok) return res.status(401).json({ error: 'La clave actual no es correcta.' });
+    const hash = await hashPassword(newPassword);
+    await query('update app_users set password_hash = $1 where username = $2', [hash, req.user.username]);
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });

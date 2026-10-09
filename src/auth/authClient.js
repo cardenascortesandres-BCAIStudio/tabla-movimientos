@@ -35,8 +35,18 @@ export function logout() {
   return apiFetch('/api/auth/logout', { method: 'POST' });
 }
 
-// Panel "👥 Usuarios" — el servidor ya filtra esto a rol 'full' (403 para
-// 'planta' aunque llamara directo), acá no se repite esa lógica.
+// Panel "👥 Usuarios" — el servidor ya filtra esto a rol 'admin' (403 para
+// 'full'/'planta' aunque llamaran directo), acá no se repite esa lógica.
 export function getUsersStatus() {
   return apiFetch('/api/auth/users');
+}
+
+// Cambiar clave — el servidor también la filtra a 'admin' y siempre cambia
+// la clave de la PROPIA sesión (no recibe username).
+export function changePassword(currentPassword, newPassword) {
+  return apiFetch('/api/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
 }

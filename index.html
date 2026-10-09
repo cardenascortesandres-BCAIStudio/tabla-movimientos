@@ -650,7 +650,7 @@
 
     <div class="card hidden-block" id="reportesUsuariosCard">
       <div class="balance-block-title" style="margin-top:0">Usuarios</div>
-      <p class="hint">Quién está en línea ahora mismo y cuándo ingresó por última vez cada usuario — solo visible con acceso total.</p>
+      <p class="hint">Quién está en línea ahora mismo y cuándo ingresó por última vez cada usuario — exclusivo de tu usuario como creador de la plataforma.</p>
       <p class="hint" id="usuariosLoadingHint">Cargando…</p>
       <div class="banner error hidden-block" id="usuariosErrorBanner"></div>
       <div class="table-scroll hidden-block" id="usuariosView">
@@ -658,6 +658,28 @@
           <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th>Última actividad</th></tr></thead>
           <tbody id="usuariosTableBody"></tbody>
         </table>
+      </div>
+
+      <div class="balance-block-title" style="margin-top:18px">Cambiar mi clave</div>
+      <p class="hint">Solo tu usuario puede cambiar su clave desde acá.</p>
+      <div class="fields">
+        <div class="field">
+          <label>Clave actual</label>
+          <input type="password" id="changePwCurrentInput" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label>Clave nueva</label>
+          <input type="password" id="changePwNewInput" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label>Confirmar clave nueva</label>
+          <input type="password" id="changePwConfirmInput" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="banner error hidden-block" id="changePwErrorBanner"></div>
+      <div class="banner info hidden-block" id="changePwSuccessBanner"></div>
+      <div class="footer-actions">
+        <button class="btn-primary" id="changePwSubmitBtn">Cambiar clave</button>
       </div>
     </div>
   </div>

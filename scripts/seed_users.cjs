@@ -9,7 +9,9 @@
 const crypto = require('crypto');
 
 const USERS = [
-  { username: 'andres', displayName: 'Andrés Cárdenas', role: 'full' },
+  // 'admin': un nivel por encima de 'full' — ve todo lo que 'full' ve, más
+  // el panel "👥 Usuarios" (exclusivo del creador de la plataforma).
+  { username: 'andres', displayName: 'Andrés Cárdenas', role: 'admin' },
   { username: 'johana', displayName: 'Johana Gonzalez', role: 'full' },
   { username: 'planta', displayName: 'Planta', role: 'planta' },
 ];
