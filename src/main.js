@@ -476,6 +476,10 @@ function switchFlow(flow) {
   // dashboard unificado de Balance.
   if (flow === 'reportes' && !reportesWeeks && (!currentUser || currentUser.role !== 'planta')) loadReportesData();
   if (flow === 'auditorias' && !auditBlocksRendered) { renderAuditBlocks(); auditBlocksRendered = true; }
+  // El sondeo de "👥 Usuarios" solo debe correr con esa pestaña realmente a
+  // la vista — se detiene al salir de Reportes y se reanuda si se vuelve
+  // justo con esa pestaña ya seleccionada de antes.
+  if (flow === 'reportes' && reportesType === 'usuarios') startUsuariosAutoRefresh(); else stopUsuariosAutoRefresh();
 }
 
 // ---------------- Balance semanal ----------------
@@ -1274,14 +1278,19 @@ function switchReportesType(type) {
   el('reportesTypeMovimientosBtn').classList.toggle('tab-active', type === 'movimientos');
   el('reportesTypeAuditoriasBtn').classList.toggle('tab-active', type === 'auditorias');
   el('reportesTypeVentasBtn').classList.toggle('tab-active', type === 'ventas');
+  el('reportesTypeUsuariosBtn').classList.toggle('tab-active', type === 'usuarios');
   el('reportesCard').classList.toggle('hidden-block', type !== 'balance');
   el('reportesHorasPlantaCard').classList.toggle('hidden-block', type !== 'horasPlanta');
   el('reportesMovCard').classList.toggle('hidden-block', type !== 'movimientos');
   el('reportesAudCard').classList.toggle('hidden-block', type !== 'auditorias');
   el('reportesVentCard').classList.toggle('hidden-block', type !== 'ventas');
+  el('reportesUsuariosCard').classList.toggle('hidden-block', type !== 'usuarios');
   if (type === 'auditorias' && !audHistAudits) loadAudReportesData();
   if (type === 'ventas' && !ventasAllDias) loadVentReportesData();
   if (type === 'horasPlanta' && !horasPlantaAllDias) loadHorasPlantaReportesData();
+  // "En línea" solo se refresca sola mientras esta pestaña está abierta — al
+  // salir se detiene el polling (evita llamadas de fondo innecesarias).
+  if (type === 'usuarios') { loadUsuariosReportesData(); startUsuariosAutoRefresh(); } else { stopUsuariosAutoRefresh(); }
 }
 
 // ---------------- Reportes de Tabla de Movimientos ----------------
@@ -2684,10 +2693,29 @@ function applyRoleRestrictions() {
   ['modeBalanceBtn', 'modeMovimientosBtn', 'modeVentasBtn', 'modeHorasExtrasBtn', 'modeAuditoriasBtn'].forEach(id => {
     el(id).classList.toggle('hidden-block', isPlanta);
   });
-  ['reportesTypeBalanceBtn', 'reportesUploadBalanceBtn', 'reportesTypeMovimientosBtn', 'reportesTypeAuditoriasBtn', 'reportesTypeVentasBtn'].forEach(id => {
+  ['reportesTypeBalanceBtn', 'reportesUploadBalanceBtn', 'reportesTypeMovimientosBtn', 'reportesTypeAuditoriasBtn', 'reportesTypeVentasBtn', 'reportesTypeUsuariosBtn'].forEach(id => {
     el(id).classList.toggle('hidden-block', isPlanta);
   });
   if (isPlanta) switchReportesType('horasPlanta');
+}
+
+// Sondeo periódico de /api/auth/me mientras la sesión está abierta — además
+// de confirmar que sigue siendo válida (y cerrar sola si ya no lo es, p. ej.
+// porque se cambió la clave desde otro lado), cada llamada cuenta como
+// actividad en el servidor (ver touchLastSeen en server/auth.js), así que
+// alguien con la pestaña abierta pero sin tocar nada sigue apareciendo "en
+// línea" en el panel de Usuarios.
+let heartbeatTimer = null;
+function startHeartbeat() {
+  if (heartbeatTimer || location.protocol === 'file:') return; // doble clic: sin servidor, nada que sondear
+  heartbeatTimer = setInterval(async () => {
+    let u;
+    try { u = await authClient.getCurrentUser(); } catch { return; } // sin conexión ahora mismo: se reintenta en el próximo tick
+    if (!u) { stopHeartbeat(); currentUser = null; showLoginScreen(); } // la sesión expiró o se cerró desde otro lado
+  }, 60000);
+}
+function stopHeartbeat() {
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
 }
 
 function showAuthenticated() {
@@ -2697,9 +2725,12 @@ function showAuthenticated() {
   applyRoleRestrictions();
   el('modeChoiceCard').classList.remove('hidden-block');
   switchFlow('choice');
+  startHeartbeat();
 }
 
 function showLoginScreen() {
+  stopHeartbeat();
+  stopUsuariosAutoRefresh();
   el('modeChoiceCard').classList.add('hidden-block');
   el('userBadge').classList.add('hidden-block');
   el('loginScreen').classList.remove('hidden-block');
@@ -2758,6 +2789,60 @@ async function handleLogout() {
   showLoginScreen();
 }
 
+// ---------------- Panel "👥 Usuarios" (quién está en línea, último ingreso) ----------------
+// Solo lo ve el rol 'full' (ver applyRoleRestrictions) — y el servidor lo
+// exige de nuevo igual (GET /api/auth/users con requireFullAccess), así que
+// no depende de que la pantalla oculte la pestaña.
+function formatRelativeTime(iso) {
+  if (!iso) return '—';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return 'hace instantes';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  return new Date(iso).toLocaleString('es-CO');
+}
+
+async function loadUsuariosReportesData() {
+  el('usuariosView').classList.add('hidden-block');
+  el('usuariosErrorBanner').classList.add('hidden-block');
+  el('usuariosLoadingHint').classList.remove('hidden-block');
+  el('usuariosLoadingHint').textContent = 'Cargando…';
+  try {
+    const { users } = await authClient.getUsersStatus();
+    renderUsuariosTable(users || []);
+    el('usuariosLoadingHint').classList.add('hidden-block');
+    el('usuariosView').classList.remove('hidden-block');
+  } catch (err) {
+    el('usuariosLoadingHint').classList.add('hidden-block');
+    const b = el('usuariosErrorBanner');
+    b.classList.remove('hidden-block');
+    b.innerHTML = '⚠ No se pudo cargar: ' + escapeHtml(err.message);
+  }
+}
+
+function renderUsuariosTable(users) {
+  const ROLE_LABELS = { full: 'Acceso total', planta: 'Horas Extras Planta' };
+  el('usuariosTableBody').innerHTML = users.map(u => {
+    const estado = u.online ? '🟢 En línea' : '⚫ Desconectado';
+    return `<tr><td>${escapeHtml(u.username)}</td><td>${escapeHtml(u.displayName)}</td><td>${escapeHtml(ROLE_LABELS[u.role] || u.role)}</td><td>${estado}</td><td>${u.lastLoginAt ? escapeHtml(new Date(u.lastLoginAt).toLocaleString('es-CO')) : 'nunca'}</td><td>${escapeHtml(formatRelativeTime(u.lastSeenAt))}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="hint">Sin usuarios.</td></tr>';
+}
+
+// Mientras la pestaña "👥 Usuarios" está abierta, se refresca sola cada 20s
+// (el estado "en línea" de los DEMÁS no se actualiza con el heartbeat propio
+// de este usuario) — se detiene al salir de la pestaña (switchReportesType)
+// o al cerrar sesión, para no sondear de fondo sin necesidad.
+let usuariosRefreshTimer = null;
+function startUsuariosAutoRefresh() {
+  if (usuariosRefreshTimer) return;
+  usuariosRefreshTimer = setInterval(loadUsuariosReportesData, 20000);
+}
+function stopUsuariosAutoRefresh() {
+  if (usuariosRefreshTimer) { clearInterval(usuariosRefreshTimer); usuariosRefreshTimer = null; }
+}
+
 // ---------------- Init ----------------
 // NOTA: los scripts type="module" siempre se ejecutan después de que el HTML
 // terminó de parsearse (misma garantía que un script "defer"), así que aquí
@@ -2812,6 +2897,7 @@ document.querySelectorAll('#reportesMermasSubTabs .tab-btn').forEach(btn => {
 
 el('reportesTypeBalanceBtn').addEventListener('click', () => switchReportesType('balance'));
 el('reportesTypeHorasPlantaBtn').addEventListener('click', () => switchReportesType('horasPlanta'));
+el('reportesTypeUsuariosBtn').addEventListener('click', () => switchReportesType('usuarios'));
 el('reportesTypeMovimientosBtn').addEventListener('click', () => switchReportesType('movimientos'));
 el('reportesTypeAuditoriasBtn').addEventListener('click', () => switchReportesType('auditorias'));
 wireMultiFileDropzone('movDropzone', 'movFileInput', movUploader.handleFiles);

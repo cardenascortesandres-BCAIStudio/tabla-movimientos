@@ -70,12 +70,27 @@ export async function hashPassword(password) {
   return bcrypt.hash(password, 10);
 }
 
+// Refresca "última actividad" (para el panel "👥 Usuarios" — quién está en
+// línea ahora mismo) — toda la lógica vive acá para no tocar cada ruta por
+// separado. Fire-and-forget: nunca bloquea ni rompe la respuesta real si la
+// DB está caída, y el `and` evita escribir en cada request (basta una vez
+// cada 30s por usuario para que "en línea" se vea al momento sin golpear la
+// base de datos en cada llamada).
+export function touchLastSeen(username) {
+  query(
+    `update app_users set last_seen_at = now() where username = $1
+     and (last_seen_at is null or last_seen_at < now() - interval '30 seconds')`,
+    [username]
+  ).catch(() => {});
+}
+
 // Requiere sesión válida (cualquier rol) — se monta sobre TODAS las rutas
 // /api/* menos /api/auth/* y /api/health.
 export function requireAuth(req, res, next) {
   const user = getSessionUser(req);
   if (!user) return res.status(401).json({ error: 'No autenticado.' });
   req.user = user;
+  touchLastSeen(user.username);
   next();
 }
 

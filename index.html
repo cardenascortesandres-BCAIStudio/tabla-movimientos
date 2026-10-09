@@ -317,6 +317,7 @@
       <button class="tab-btn" id="reportesTypeMovimientosBtn">📋 Tabla de Movimientos</button>
       <button class="tab-btn" id="reportesTypeAuditoriasBtn">🗒 Auditorías</button>
       <button class="tab-btn" id="reportesTypeVentasBtn">🎯 Presupuesto</button>
+      <button class="tab-btn" id="reportesTypeUsuariosBtn">👥 Usuarios</button>
     </div>
 
     <div class="card" id="reportesCard">
@@ -645,6 +646,19 @@
       <p class="hint" id="ventReportesLoadingHint" style="margin-top:18px">Cargando historial…</p>
       <div class="banner error hidden-block" id="ventReportesErrorBanner"></div>
       <p class="hint">El comparativo contra la meta y la proyección de cierre del mes ya están unificados en la pestaña "📊 Informes" → botón "🎯 Presupuesto".</p>
+    </div>
+
+    <div class="card hidden-block" id="reportesUsuariosCard">
+      <div class="balance-block-title" style="margin-top:0">Usuarios</div>
+      <p class="hint">Quién está en línea ahora mismo y cuándo ingresó por última vez cada usuario — solo visible con acceso total.</p>
+      <p class="hint" id="usuariosLoadingHint">Cargando…</p>
+      <div class="banner error hidden-block" id="usuariosErrorBanner"></div>
+      <div class="table-scroll hidden-block" id="usuariosView">
+        <table class="unrec-table">
+          <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th>Última actividad</th></tr></thead>
+          <tbody id="usuariosTableBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 

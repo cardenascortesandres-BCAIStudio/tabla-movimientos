@@ -34,3 +34,9 @@ export function login(username, password) {
 export function logout() {
   return apiFetch('/api/auth/logout', { method: 'POST' });
 }
+
+// Panel "👥 Usuarios" — el servidor ya filtra esto a rol 'full' (403 para
+// 'planta' aunque llamara directo), acá no se repite esa lógica.
+export function getUsersStatus() {
+  return apiFetch('/api/auth/users');
+}
