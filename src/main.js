@@ -81,22 +81,43 @@ function fmtPct(v) { return (Math.round(v * 1000) / 10).toFixed(1) + '%'; }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 const APP_BUILD = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev';
 // Si el navegador sirve una copia vieja de la app (caché del PWA), se detecta comparando contra
-// /version.json del servidor y se recarga UNA vez sin caché — así no hace falta Ctrl+Shift+R.
-async function ensureLatestVersion() {
+// /version.json del servidor y se recarga sin caché — así no hace falta Ctrl+Shift+R.
+async function clearAppCachesAndReload() {
+  const regs = (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) ? await navigator.serviceWorker.getRegistrations() : [];
+  await Promise.all(regs.map(x => x.unregister()));
+  if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+  location.reload();
+}
+
+// Al abrir la app (recién cargada, nada que perder todavía) se recarga sola
+// UNA vez por versión detectada — sin pedirle nada al usuario. Pero esto
+// solo revisa al momento de abrir: la app Instalada (PWA) de Chrome suele
+// quedar abierta por horas/días sin volver a cargarse, así que alguien
+// puede seguir generando reportes con una copia vieja del código sin
+// enterarse (pasó de verdad: el mismo arreglo de minimarket se "perdió" en
+// una sesión que llevaba abierta desde antes del despliegue). Por eso
+// además se revisa cada 5 minutos mientras la app sigue abierta — pero esa
+// revisión NO recarga sola (podría perder algo sin guardar a mitad de una
+// carga de archivos), solo muestra un aviso con un botón para actualizar
+// cuando el usuario quiera.
+async function ensureLatestVersion(isInitialCheck) {
   if (typeof __BUILD_TIME__ === 'undefined' || location.protocol === 'file:') return;
   try {
     const r = await fetch('/version.json?ts=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) return;
     const { build } = await r.json();
-    if (!build || build === APP_BUILD || sessionStorage.getItem('reloadedFor') === build) return;
-    sessionStorage.setItem('reloadedFor', build);
-    const regs = (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) ? await navigator.serviceWorker.getRegistrations() : [];
-    await Promise.all(regs.map(x => x.unregister()));
-    if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
-    location.reload();
+    if (!build || build === APP_BUILD) return;
+    if (isInitialCheck) {
+      if (sessionStorage.getItem('reloadedFor') === build) return;
+      sessionStorage.setItem('reloadedFor', build);
+      await clearAppCachesAndReload();
+    } else {
+      el('updateBanner').classList.remove('hidden-block');
+    }
   } catch { /* sin conexión o sin version.json: se ignora */ }
 }
-ensureLatestVersion();
+ensureLatestVersion(true);
+setInterval(() => ensureLatestVersion(false), 5 * 60 * 1000);
 function stampName(base) { return base + '_' + new Date().toLocaleString('sv-SE').slice(0, 16).replace(' ', '_').replace(':', '-') + '.html'; }
 function downloadBlob(buffer, filename, mime) {
   const blob = new Blob([buffer], { type: mime });
@@ -3021,5 +3042,6 @@ el('loginSubmitBtn').addEventListener('click', handleLoginSubmit);
 el('loginPasswordInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLoginSubmit(); });
 el('loginUsernameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLoginSubmit(); });
 el('logoutBtn').addEventListener('click', handleLogout);
+el('updateNowBtn').addEventListener('click', clearAppCachesAndReload);
 
 bootstrapAuth();
