@@ -180,6 +180,38 @@ describe('parseDataRows', () => {
     expect(products.map(p => p.rawCode)).toEqual(['1101']);
     expect(skippedExcluded).toBe(1);
   });
+
+  // Bug real (2026-10-15): la lista de códigos siempre queda un paso atrás —
+  // cada semana entra un SKU nuevo de minimarket que nadie ha visto. El
+  // archivo crudo (export de Crystal Reports) SÍ trae una sección estable
+  // por producto (columna justo antes del código, con el nombre en la
+  // ÚLTIMA fila de cada grupo) — se usa esa sección para descartar
+  // minimarket SIN depender del código, así un producto nuevo bajo una
+  // sección de minimarket ya conocida se descarta solo. Esto NO debe
+  // esconder un producto cárnico real todavía no catalogado: la sección
+  // manda por encima del código/catálogo en ambos sentidos.
+  it('usa la sección del archivo crudo (no solo el código) para descartar minimarket sin perder cárnicos nuevos', () => {
+    const rows = [
+      ['', '', '', '', 'COMPRAS', 'VENTAS', 'INVENTARIO INICIAL', 'INVENTARIO FINAL'],
+      ['CARNES FINAS', '1101', 'LOMO VICHE CORRIENTE', 10, 5, 0, 5], // carnico, del catalogo maestro, cierra su propio grupo
+      ['', '9001', 'AGUA CRISTAL 600ML SABOR NUEVO', 8, 3, 0, 5], // minimarket, codigo nunca antes visto
+      ['BEDIDAS Y REFRESCOS', '9002', 'GASEOSA SABOR NUEVO', 4, 2, 0, 2], // cierra el grupo de arriba
+      ['', '9003', 'COSTILLA NUEVA SIN CATALOGAR', 6, 1, 0, 5], // carnico nuevo, sin catalogar, sin seccion todavia
+      ['CERDO', '9004', 'CABEZA DE CERDO NUEVA', 2, 0, 0, 2], // cierra el grupo de arriba (cardico)
+    ];
+    const hInfo = detectHeaderRow(rows, 10);
+    expect(hInfo.method).toBe('inferred');
+    const mCols = classifyMovementCols(rows, hInfo);
+    const { products, skippedExcluded } = parseDataRows(rows, hInfo, mCols);
+    // 9001/9002 (minimarket, sección "BEDIDAS Y REFRESCOS") se descartan aunque
+    // el código nunca haya estado en movimientosExclusionList.js.
+    expect(skippedExcluded).toBe(2);
+    // 1101 (catálogo), 9003 y 9004 (cárnicos nuevos sin catalogar, sección
+    // "CERDO") se conservan — incluida 9003, que viene ANTES de la fila que
+    // cierra su grupo (prueba que la sección se calcula hacia atrás, no
+    // hacia adelante).
+    expect(products.map(p => p.rawCode).sort()).toEqual(['1101', '9003', '9004']);
+  });
 });
 
 describe('parseDataRows — excluye insumos/empaques/aseo por palabra clave', () => {
