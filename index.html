@@ -392,6 +392,30 @@
               </table>
             </div>
           </div>
+
+          <div class="dash-table-title" style="margin-top:22px">Histórico de cumplimiento — meses ya cerrados</div>
+          <div class="dash-sub">Venta real del mes contra la meta que se cargó ese mes — así se ve de un vistazo cuáles meses cumplieron y cuáles no, para comparar en el tiempo.</div>
+          <div class="dash-charts">
+            <div class="chart-box" style="grid-column:1/-1"><canvas id="chartPresupuestoHistorico"></canvas></div>
+          </div>
+          <div class="dash-table-wrap">
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead><tr><th class="left">Mes</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
+                <tbody id="presupuestoHistoricoTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="dash-table-title" style="margin-top:22px">Resumen por año</div>
+          <div class="dash-table-wrap">
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead><tr><th class="left">Año</th><th>Meses con meta</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
+                <tbody id="presupuestoAnualTableBody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
         <div class="hidden-block" id="reportesMermasView">
           <div class="dash-filters">

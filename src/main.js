@@ -57,7 +57,7 @@ import { buildAuditoriasReportHtml } from './export/auditoriasHtmlReportExport.j
 import { parseVentasDiariasFile, guessSedeFromVentasRows, matchKnownSede } from './core/ventasFileParse.js';
 import { parsePresupuestoFile } from './core/presupuestoFileParse.js';
 import * as ventasApi from './ventas/ventasApi.js';
-import { aggregateByPeriod as aggregateVentByPeriod, computeProjection } from './ventas/ventasDashboardData.js';
+import { aggregateByPeriod as aggregateVentByPeriod, computeProjection, periodLabel as ventaMonthLabel } from './ventas/ventasDashboardData.js';
 
 import { parsePdfEmpleados } from './horasExtras/horasExtrasPdfLoader.js';
 import * as horasExtrasApi from './horasExtras/horasExtrasApi.js';
@@ -1243,6 +1243,76 @@ function renderReportesPresupuestoView(sedeFilter) {
       <td class="${cls}">${pct == null ? '—' : fmtPct(pct)}</td>
     </tr>`;
   }).join('') : '<tr><td colspan="5" class="left hint">Sin ventas del mes en curso todavía.</td></tr>';
+
+  renderPresupuestoHistorico(sedeFilter);
+}
+
+// Histórico de cumplimiento (a pedido explícito del usuario: "quiero ver el
+// cumplimiento del presupuesto del mes anterior... para comparar a través
+// del tiempo por meses y años") — a diferencia de los KPI de arriba (que son
+// SIEMPRE el mes en curso, con proyección porque todavía no cierra), esto
+// mira los meses YA CERRADOS: venta real (no proyectada) contra la meta que
+// se cargó ese mes. Solo entran meses con presupuesto cargado (sin meta no
+// hay nada que evaluar) y se excluye el mes en curso (todavía no cierra,
+// compararlo con venta parcial contra la meta completa sería injusto/falso).
+let chartPresupuestoHistorico;
+function renderPresupuestoHistorico(sedeFilter) {
+  const { anio: curAnio, mes: curMes } = currentAnioMes();
+  const curKey = `${curAnio}-${String(curMes).padStart(2, '0')}`;
+
+  const ventaRows = sedeFilter ? (ventasAllDias || []).filter(d => d.sede_name === sedeFilter) : (ventasAllDias || []);
+  const ventaData = aggregateVentByPeriod(ventaRows, 'month');
+  const ventaByMonth = new Map();
+  ventaData.periodKeysSorted.forEach(k => {
+    const pts = ventaData.byPeriod.get(k) || [];
+    ventaByMonth.set(k, pts.reduce((a, p) => a + p.valorVenta, 0));
+  });
+
+  const presByMonth = new Map();
+  (ventasPresupuestos || []).forEach(p => {
+    if (sedeFilter && p.sede_name !== sedeFilter) return;
+    const key = `${p.anio}-${String(p.mes).padStart(2, '0')}`;
+    presByMonth.set(key, (presByMonth.get(key) || 0) + (Number(p.monto) || 0));
+  });
+
+  const monthKeys = Array.from(presByMonth.keys()).filter(k => k < curKey).sort();
+  const rows = monthKeys.map(k => {
+    const ventaReal = ventaByMonth.get(k) || 0;
+    const presupuesto = presByMonth.get(k) || 0;
+    const pct = presupuesto > 0 ? ventaReal / presupuesto : null;
+    return { periodKey: k, periodLabel: ventaMonthLabel(k, 'month'), ventaReal, presupuesto, pct, cumple: pct != null && pct >= 1 };
+  });
+
+  el('presupuestoHistoricoTableBody').innerHTML = rows.length ? rows.slice().reverse().map(r => {
+    const cls = r.pct == null ? '' : (r.cumple ? 'diff-zero' : 'diff-neg');
+    return `<tr><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmtCOP(r.ventaReal)}</td><td>${r.presupuesto > 0 ? fmtCOP(r.presupuesto) : '—'}</td><td class="${cls}">${r.pct == null ? '—' : fmtPct(r.pct)}</td><td>${r.pct == null ? '—' : (r.cumple ? '✓ Cumplió' : '✗ No cumplió')}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="left hint">Todavía no hay un mes cerrado con presupuesto cargado.</td></tr>';
+
+  if (chartPresupuestoHistorico) chartPresupuestoHistorico.destroy();
+  const labels = rows.map(r => r.periodLabel);
+  const pctValues = rows.map(r => (r.pct == null ? 0 : r.pct * 100));
+  const colors = rows.map(r => r.pct == null ? dashVar('--dv-text-muted', 'reportesView') : (r.cumple ? dashVar('--dv-pos', 'reportesView') : dashVar('--dv-neg', 'reportesView')));
+  chartPresupuestoHistorico = new Chart(el('chartPresupuestoHistorico').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: '% Cumplimiento', data: pctValues, backgroundColor: colors, borderRadius: 6 }] },
+    options: dashboardChartOptions(['% de cumplimiento del presupuesto por mes' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Meta = 100%'], 'reportesView', v => fmtPct(v / 100))
+  });
+
+  const byYear = new Map();
+  rows.forEach(r => {
+    const y = r.periodKey.slice(0, 4);
+    if (!byYear.has(y)) byYear.set(y, { meses: 0, ventaReal: 0, presupuesto: 0 });
+    const acc = byYear.get(y);
+    acc.meses += 1; acc.ventaReal += r.ventaReal; acc.presupuesto += r.presupuesto;
+  });
+  const years = Array.from(byYear.keys()).sort().reverse();
+  el('presupuestoAnualTableBody').innerHTML = years.length ? years.map(y => {
+    const acc = byYear.get(y);
+    const pct = acc.presupuesto > 0 ? acc.ventaReal / acc.presupuesto : null;
+    const cumple = pct != null && pct >= 1;
+    const cls = pct == null ? '' : (cumple ? 'diff-zero' : 'diff-neg');
+    return `<tr><td class="left">${y}</td><td>${acc.meses}</td><td>${fmtCOP(acc.ventaReal)}</td><td>${acc.presupuesto > 0 ? fmtCOP(acc.presupuesto) : '—'}</td><td class="${cls}">${pct == null ? '—' : fmtPct(pct)}</td><td>${pct == null ? '—' : (cumple ? '✓ Cumplió' : '✗ No cumplió')}</td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="left hint">Todavía no hay años con meses cerrados.</td></tr>';
 }
 
 function renderReportesTable(metric, data, ventaData, sedeFilter, periodKeysInScope) {

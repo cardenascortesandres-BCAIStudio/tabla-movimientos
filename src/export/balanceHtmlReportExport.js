@@ -128,6 +128,19 @@ ${VIEWER_CSS}
       <thead><tr><th class="left">Sede</th><th>Acumulado</th><th>Proyección de cierre</th><th>Presupuesto</th><th>% Proyectado</th></tr></thead>
       <tbody id="presuTableBody"></tbody>
     </table>
+
+    <p class="hint" style="margin-top:22px;font-weight:700;">Histórico de cumplimiento — meses ya cerrados</p>
+    <div class="chart-box" style="margin-bottom:16px"><canvas id="chartPresupuestoHistorico"></canvas></div>
+    <table class="dtable" id="presuHistoricoTable">
+      <thead><tr><th class="left">Mes</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
+      <tbody id="presuHistoricoTableBody"></tbody>
+    </table>
+
+    <p class="hint" style="margin-top:22px;font-weight:700;">Resumen por año</p>
+    <table class="dtable" id="presuAnualTable">
+      <thead><tr><th class="left">Año</th><th>Meses con meta</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
+      <tbody id="presuAnualTableBody"></tbody>
+    </table>
   </section>
   <section class="view-panel hidden-block" id="view-mermas">
     <div class="kpi-grid" id="mermasKpiGrid" style="margin-bottom:16px"></div>
@@ -916,6 +929,65 @@ function viewPresupuesto(){
     const cls = p == null ? '' : (p >= 1 ? 'diff-zero' : (p >= 0.9 ? '' : 'diff-neg'));
     return '<tr><td class="left">' + s.sedeName + '</td><td>' + (s.proj ? fmtCOP(s.proj.acumulado) : '—') + '</td><td>' + (s.proj ? fmtCOP(s.proj.proyeccion) : '—') + '</td><td>' + (s.presupuesto > 0 ? fmtCOP(s.presupuesto) : '—') + '</td><td class="' + cls + '">' + (p == null ? '—' : fmtPct(p)) + '</td></tr>';
   }).join('') : '<tr><td colspan="5" class="left">Sin ventas del mes en curso todavía.</td></tr>';
+
+  renderPresupuestoHistorico(sedeFilter, anio, mes);
+}
+
+// Histórico de cumplimiento (meses YA CERRADOS, venta real contra la meta
+// de ese mes — no proyección) — mismo criterio que el dashboard en pantalla
+// (ver renderPresupuestoHistorico en src/main.js).
+function renderPresupuestoHistorico(sedeFilter, curAnio, curMes){
+  const curKey = curAnio + '-' + String(curMes).padStart(2, '0');
+  const ventaRows = sedeFilter ? RAW_VENTAS.filter(d => d.sedeName === sedeFilter) : RAW_VENTAS;
+  const ventaData = aggregateVentasByPeriod(ventaRows, 'month');
+  const ventaByMonth = new Map();
+  ventaData.byPeriod.forEach(({ periodKey, points }) => { ventaByMonth.set(periodKey, points.reduce((a, p) => a + p.valorVenta, 0)); });
+
+  const presByMonth = new Map();
+  RAW_PRESUPUESTOS.forEach(p => {
+    if (sedeFilter && p.sedeName !== sedeFilter) return;
+    const key = p.anio + '-' + String(p.mes).padStart(2, '0');
+    presByMonth.set(key, (presByMonth.get(key) || 0) + (Number(p.monto) || 0));
+  });
+
+  const monthKeys = Array.from(presByMonth.keys()).filter(k => k < curKey).sort();
+  const rows = monthKeys.map(k => {
+    const ventaReal = ventaByMonth.get(k) || 0;
+    const presupuesto = presByMonth.get(k) || 0;
+    const pct = presupuesto > 0 ? ventaReal / presupuesto : null;
+    return { periodKey: k, periodLabel: ventaPeriodLabel(k, 'month'), ventaReal, presupuesto, pct, cumple: pct != null && pct >= 1 };
+  });
+
+  el('presuHistoricoTableBody').innerHTML = rows.length ? rows.slice().reverse().map(r => {
+    const cls = r.pct == null ? '' : (r.cumple ? 'diff-zero' : 'diff-neg');
+    return '<tr><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.ventaReal) + '</td><td>' + (r.presupuesto > 0 ? fmtCOP(r.presupuesto) : '—') + '</td><td class="' + cls + '">' + (r.pct == null ? '—' : fmtPct(r.pct)) + '</td><td>' + (r.pct == null ? '—' : (r.cumple ? '✓ Cumplió' : '✗ No cumplió')) + '</td></tr>';
+  }).join('') : '<tr><td colspan="5" class="left">Todavía no hay un mes cerrado con presupuesto cargado.</td></tr>';
+
+  destroyChart('presupuestoHistorico');
+  const labels = rows.map(r => r.periodLabel);
+  const pctValues = rows.map(r => (r.pct == null ? 0 : r.pct * 100));
+  const colors = rows.map(r => r.pct == null ? '#8892b0' : (r.cumple ? '#2be3a8' : '#ff3b6e'));
+  charts.presupuestoHistorico = new Chart(el('chartPresupuestoHistorico').getContext('2d'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: '% Cumplimiento', data: pctValues, backgroundColor: colors, borderRadius: 6 }] },
+    options: chartOptions(['% de cumplimiento del presupuesto por mes' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Meta = 100%'], null, (v) => fmtPct(v / 100))
+  });
+
+  const byYear = new Map();
+  rows.forEach(r => {
+    const y = r.periodKey.slice(0, 4);
+    if (!byYear.has(y)) byYear.set(y, { meses: 0, ventaReal: 0, presupuesto: 0 });
+    const acc = byYear.get(y);
+    acc.meses += 1; acc.ventaReal += r.ventaReal; acc.presupuesto += r.presupuesto;
+  });
+  const years = Array.from(byYear.keys()).sort().reverse();
+  el('presuAnualTableBody').innerHTML = years.length ? years.map(y => {
+    const acc = byYear.get(y);
+    const pct = acc.presupuesto > 0 ? acc.ventaReal / acc.presupuesto : null;
+    const cumple = pct != null && pct >= 1;
+    const cls = pct == null ? '' : (cumple ? 'diff-zero' : 'diff-neg');
+    return '<tr><td class="left">' + y + '</td><td>' + acc.meses + '</td><td>' + fmtCOP(acc.ventaReal) + '</td><td>' + (acc.presupuesto > 0 ? fmtCOP(acc.presupuesto) : '—') + '</td><td class="' + cls + '">' + (pct == null ? '—' : fmtPct(pct)) + '</td><td>' + (pct == null ? '—' : (cumple ? '✓ Cumplió' : '✗ No cumplió')) + '</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="left">Todavía no hay años con meses cerrados.</td></tr>';
 }
 
 // "Mermas": a diferencia de las otras 3 vistas, ignora
