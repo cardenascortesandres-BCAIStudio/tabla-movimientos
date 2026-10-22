@@ -91,6 +91,37 @@ describe('parseLiquidacionPage', () => {
   it('devuelve null si la página no tiene la forma esperada (no es una Liquidación Detallada)', () => {
     expect(parseLiquidacionPage([{ str: 'Texto cualquiera', x: 10, y: 10 }])).toBeNull();
   });
+
+  // Bug real (2026-10-22): RH cambió el formato del PDF — el ID ya no viene
+  // entre paréntesis, "Periodo: X hasta Y" pasó a "Periodo: X al Y", "Sucursal:"
+  // desapareció del todo, y cada campo quedó separado en VARIOS textItems de
+  // pdfjs con un textItem de solo " " entre ellos (en vez de un único string
+  // con todo el texto, como en el fixture METADATA de arriba) — coordenadas
+  // tomadas de un PDF real (ALAMEDA 28 SEP AL 20 OCT.pdf).
+  it('reconoce el formato nuevo del PDF (sin paréntesis en el ID, "al" en vez de "hasta", sin Sucursal)', () => {
+    const items = [
+      { str: 'Liquidación Detallada', x: 239, y: 749 },
+      { str: 'Periodo: 2026-09-28 al 2026-10-20', x: 244, y: 738 },
+      { str: 'ARANGO MORENO GUSTAVO ADOLFO', x: 46, y: 714 },
+      { str: ' ', x: 235, y: 714 },
+      { str: 'ID: 94447474', x: 244, y: 714 },
+      { str: 'Cargo:', x: 46, y: 696 }, { str: ' ', x: 70, y: 696 },
+      { str: 'AUXILIAR DE INVENTARIOS ·', x: 72, y: 696 }, { str: ' ', x: 178, y: 696 },
+      { str: 'Estado:', x: 182, y: 696 }, { str: ' ', x: 210, y: 696 }, { str: 'Activo', x: 212, y: 696 },
+      ...HEADER,
+      { str: 'Lu 28', x: 47, y: 666 },
+      { str: '5', x: 259, y: 666 }, { str: '4', x: 301, y: 666 }, { str: '5', x: 356, y: 666 }
+    ];
+    const result = parseLiquidacionPage(items);
+    expect(result).not.toBeNull();
+    expect(result.empleadoId).toBe('94447474');
+    expect(result.nombre).toBe('ARANGO MORENO GUSTAVO ADOLFO');
+    expect(result.cargo).toBe('AUXILIAR DE INVENTARIOS');
+    expect(result.sede).toBeNull(); // ya no viene en el PDF — se adivina/edita por archivo en main.js
+    expect(result.periodoInicio).toBe('2026-09-28');
+    expect(result.periodoFin).toBe('2026-10-20');
+    expect(result.dias).toHaveLength(1);
+  });
 });
 
 describe('computeAlertas', () => {

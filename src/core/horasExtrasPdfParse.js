@@ -52,8 +52,14 @@ function groupRows(items) {
   return rows;
 }
 
+// Se une CON espacio (no '') porque `groupRows` descarta los textItems que
+// son puro espacio en blanco (ver el filtro `clean` más abajo) — el PDF
+// nuevo (desde 2026-10-22) separa "ADOLFO" de "ID:" con un textItem de solo
+// " ", así que unir sin separador los deja pegados ("ADOLFOID:"), rompiendo
+// cada regex de metadata (nombre/cargo/periodo/estado) que sigue. El
+// `.replace(/\s+/g,' ')` de abajo limpia los espacios dobles que esto cause.
 function rowText(row) {
-  return row.items.map((it) => it.str).join('').replace(/\s+/g, ' ').trim();
+  return row.items.map((it) => it.str).join(' ').replace(/\s+/g, ' ').trim();
 }
 
 // Encuentra la fila de encabezado de la tabla (la que trae las 12 etiquetas
@@ -137,13 +143,18 @@ export function parseLiquidacionPage(items) {
   let periodoInicio = null, periodoFin = null, estado = null;
   for (const row of rows.slice(0, 6)) {
     const text = rowText(row);
-    const mNombre = /^(.+?)\s*\(ID:\s*([^)]+)\)$/.exec(text);
+    // RH cambió el formato del PDF (2026-10-22): el ID ya no viene entre
+    // paréntesis ("NOMBRE (ID: 123)" -> "NOMBRE ID: 123") y "Sucursal:" ya
+    // no aparece en absoluto — se intenta primero el formato viejo (por si
+    // algún PDF histórico se vuelve a subir) y se cae al nuevo si no calza.
+    const mNombre = /^(.+?)\s*\(ID:\s*([^)]+)\)$/.exec(text) || /^(.+?)\s+ID:\s*(\S+)$/.exec(text);
     if (mNombre) { nombre = mNombre[1].trim(); empleadoId = mNombre[2].trim(); continue; }
     const mSede = /Sucursal:\s*([^·]+?)\s*(?:·|$)/.exec(text);
     if (mSede) sede = mSede[1].trim();
     const mCargo = /Cargo:\s*([^·]+?)\s*(?:·|$)/.exec(text);
     if (mCargo) cargo = mCargo[1].trim();
-    const mPeriodo = /Periodo:\s*(\d{4}-\d{2}-\d{2})\s*hasta\s*(\d{4}-\d{2}-\d{2})/.exec(text);
+    // Mismo cambio de formato: "Periodo: X hasta Y" -> "Periodo: X al Y".
+    const mPeriodo = /Periodo:\s*(\d{4}-\d{2}-\d{2})\s*(?:hasta|al)\s*(\d{4}-\d{2}-\d{2})/.exec(text);
     if (mPeriodo) { periodoInicio = mPeriodo[1]; periodoFin = mPeriodo[2]; }
     const mEstado = /Estado:\s*(\S+)/.exec(text);
     if (mEstado) estado = mEstado[1].trim();

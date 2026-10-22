@@ -59,6 +59,7 @@ import { parsePresupuestoFile } from './core/presupuestoFileParse.js';
 import * as ventasApi from './ventas/ventasApi.js';
 import { aggregateByPeriod as aggregateVentByPeriod, computeProjection, periodLabel as ventaMonthLabel } from './ventas/ventasDashboardData.js';
 
+import { removeAccents } from './core/normalize.js';
 import { parsePdfEmpleados } from './horasExtras/horasExtrasPdfLoader.js';
 import * as horasExtrasApi from './horasExtras/horasExtrasApi.js';
 import * as horasExtrasPlantaApi from './horasExtras/horasExtrasPlantaApi.js';
@@ -118,6 +119,12 @@ async function ensureLatestVersion(isInitialCheck) {
 }
 ensureLatestVersion(true);
 setInterval(() => ensureLatestVersion(false), 5 * 60 * 1000);
+// La app instalada de Chrome se queda minimizada/en segundo plano por días
+// (confirmado: así pasó lo del minimarket de Jamundí) — un navegador en
+// segundo plano puede retrasar/saltarse el setInterval de arriba. Revisar
+// también justo al volver a traerla al frente es más confiable: es el
+// momento exacto en que la persona va a empezar a usarla.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') ensureLatestVersion(false); });
 function stampName(base) { return base + '_' + new Date().toLocaleString('sv-SE').slice(0, 16).replace(' ', '_').replace(':', '-') + '.html'; }
 function downloadBlob(buffer, filename, mime) {
   const blob = new Blob([buffer], { type: mime });
@@ -2306,16 +2313,28 @@ function renderPresupuestoTable() {
 }
 
 // ---------------- Horas Extras (carga desde la pantalla inicial) ----------------
-// Cada PDF trae UNA página por empleado, y la sede de cada empleado sale
-// directo del propio PDF (no hay que adivinarla, a diferencia de Balance/
-// Ventas) — por eso el uploader no necesita ni sede ni fecha por archivo,
-// solo lista lo que se detectó y deja "Quitar" para descartar un archivo
-// que no calce.
+// Hasta el 2026-10-21 cada PDF traía la sede explícita por empleado
+// ("Sucursal: ..."), no había que adivinarla. Desde el 2026-10-22 RH cambió
+// el formato del reporte y ese campo desapareció del PDF por completo — así
+// que ahora se adivina por el NOMBRE DEL ARCHIVO (siempre arranca con la
+// sede: "ALAMEDA ...", "CHIMI ...") y queda editable por archivo, igual que
+// Movimientos/Ventas hacen con su propio campo de sede.
+const HORAS_SEDE_ALIASES = {
+  ALAMEDA: 'Alameda', CASONA: 'Casona', CHIMI: 'Chiminangos', CHIMINANGOS: 'Chiminangos',
+  DECEPAZ: 'Decepaz', JAMUNDI: 'Jamundí', NARANJOS: 'Los Naranjos', VILLA: 'Villa del Lago'
+};
+function guessSedeFromHorasFileName(fileName) {
+  const firstWord = fileName.replace(/\.pdf$/i, '').trim().split(/\s+/)[0] || '';
+  const key = removeAccents(firstWord).toUpperCase();
+  if (HORAS_SEDE_ALIASES[key]) return HORAS_SEDE_ALIASES[key];
+  return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
+}
+
 // `api` es horasExtrasApi (PDV) u horasExtrasPlantaApi (Planta) — mismo
 // parser/validación, solo cambia a qué historial (y por lo tanto a qué
 // tabla en el backend) se guarda.
 function createHorasUploader(ids, api, onSaved) {
-  let entries = []; // { fileName, error?, empleados, omitidas }
+  let entries = []; // { fileName, error?, empleados, omitidas, sedeName }
 
   function render() {
     el(ids.filesList).innerHTML = entries.map((e, i) => {
@@ -2326,16 +2345,19 @@ function createHorasUploader(ids, api, onSaved) {
           <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
         </div>`;
       }
-      const sedes = Array.from(new Set(e.empleados.map(emp => emp.sede))).join(', ');
       const totalDias = e.empleados.reduce((a, emp) => a + emp.dias.length, 0);
       const horaExtraTotal = e.empleados.reduce((a, emp) => a + emp.dias.reduce((b, d) => b + horaExtraDelDia(d), 0), 0);
       const omitidasTxt = e.omitidas ? ` · ⚠ ${e.omitidas} página(s) sin reconocer` : '';
       return `<div class="vent-file-row">
         <div class="vent-file-name">${escapeHtml(e.fileName)}</div>
-        <div class="vent-file-summary">${escapeHtml(sedes)} · ${e.empleados.length} empleado(s) · ${totalDias} día(s) · Horas extra ${fmt(horaExtraTotal)}${omitidasTxt}</div>
+        <input type="text" data-sede-idx="${i}" value="${escapeHtml(e.sedeName)}" placeholder="Sede">
+        <div class="vent-file-summary">${e.empleados.length} empleado(s) · ${totalDias} día(s) · Horas extra ${fmt(horaExtraTotal)}${omitidasTxt}</div>
         <button type="button" class="btn-tiny" data-remove="${i}">Quitar</button>
       </div>`;
     }).join('') || '<p class="hint">No hay archivos cargados.</p>';
+    el(ids.filesList).querySelectorAll('input[data-sede-idx]').forEach(inp => {
+      inp.addEventListener('input', () => { entries[+inp.dataset.sedeIdx].sedeName = inp.value.trim(); });
+    });
     el(ids.filesList).querySelectorAll('button[data-remove]').forEach(btn => {
       btn.addEventListener('click', () => { entries.splice(+btn.dataset.remove, 1); render(); });
     });
@@ -2355,7 +2377,11 @@ function createHorasUploader(ids, api, onSaved) {
         if (!empleados.length) {
           entries.push({ fileName: file.name, error: 'No se reconoció ninguna página como "Liquidación Detallada" en este PDF.' });
         } else {
-          entries.push({ fileName: file.name, empleados, omitidas });
+          // Si el PDF (formato viejo) sí trae la sede explícita, se usa esa
+          // como sugerencia inicial; si no (formato nuevo, desde 2026-10-22),
+          // se adivina por el nombre del archivo — en ambos casos queda editable.
+          const sedeName = empleados.find(emp => emp.sede)?.sede || guessSedeFromHorasFileName(file.name);
+          entries.push({ fileName: file.name, empleados, omitidas, sedeName });
         }
       } catch (err) {
         entries.push({ fileName: file.name, error: 'No se pudo leer el archivo: ' + err.message });
@@ -2375,7 +2401,7 @@ function createHorasUploader(ids, api, onSaved) {
     const dias = [];
     valid.forEach(e => e.empleados.forEach(emp => emp.dias.forEach(d => {
       dias.push({
-        sedeName: emp.sede, empleadoId: emp.empleadoId, empleadoNombre: emp.nombre, cargo: emp.cargo,
+        sedeName: e.sedeName || emp.sede, empleadoId: emp.empleadoId, empleadoNombre: emp.nombre, cargo: emp.cargo,
         fecha: d.fecha, estadoDia: d.estadoDia, total: d.total, comida: d.comida, f: d.f, hdo: d.hdo,
         rn: d.rn, rndyf: d.rndyf, dom: d.dom, d: d.d, hefd: d.hefd, hefn: d.hefn, he: d.he, hen: d.hen
       });

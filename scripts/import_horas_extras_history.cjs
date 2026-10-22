@@ -12,6 +12,21 @@ const fs = require('fs');
 
 const DIR = 'C:/Users/Supervisor_Puntos/Desktop/BRANGUS/HORAS EXTRAS';
 
+// Desde el 2026-10-22 el PDF de RH ya no trae "Sucursal:" (ver nota en
+// src/core/horasExtrasPdfParse.js) — se adivina por el nombre del archivo
+// (siempre arranca con la sede), mismo criterio que el uploader web
+// (guessSedeFromHorasFileName en src/main.js).
+const SEDE_ALIASES = {
+  ALAMEDA: 'Alameda', CASONA: 'Casona', CHIMI: 'Chiminangos', CHIMINANGOS: 'Chiminangos',
+  DECEPAZ: 'Decepaz', JAMUNDI: 'Jamundí', NARANJOS: 'Los Naranjos', VILLA: 'Villa del Lago'
+};
+function guessSedeFromFileName(fileName) {
+  const firstWord = fileName.replace(/\.pdf$/i, '').trim().split(/\s+/)[0] || '';
+  const key = firstWord.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (SEDE_ALIASES[key]) return SEDE_ALIASES[key];
+  return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
+}
+
 async function main() {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const { parseLiquidacionPage } = await import('../src/core/horasExtrasPdfParse.js');
@@ -39,7 +54,7 @@ async function main() {
       const result = parseLiquidacionPage(items);
       if (!result) { omitidas++; console.log('  [pág ' + p + '] ⚠ no se pudo parsear (no calza con el formato esperado)'); continue; }
       empleados++;
-      const sedeName = result.sede;
+      const sedeName = result.sede || guessSedeFromFileName(file);
       (bySede[sedeName] ||= { empleados: 0, dias: 0, horaExtraTotal: 0 });
       bySede[sedeName].empleados++;
       result.dias.forEach((d) => {
