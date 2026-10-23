@@ -2403,7 +2403,8 @@ function createHorasUploader(ids, api, onSaved) {
       dias.push({
         sedeName: e.sedeName || emp.sede, empleadoId: emp.empleadoId, empleadoNombre: emp.nombre, cargo: emp.cargo,
         fecha: d.fecha, estadoDia: d.estadoDia, total: d.total, comida: d.comida, f: d.f, hdo: d.hdo,
-        rn: d.rn, rndyf: d.rndyf, dom: d.dom, d: d.d, hefd: d.hefd, hefn: d.hefn, he: d.he, hen: d.hen
+        rn: d.rn, rndyf: d.rndyf, dom: d.dom, d: d.d, hefd: d.hefd, hefn: d.hefn, he: d.he, hen: d.hen,
+        entrada1: d.entrada1, salida1: d.salida1, entrada2: d.entrada2, salida2: d.salida2
       });
     })));
     const btn = el(ids.saveBtn);
@@ -2556,14 +2557,21 @@ function renderHorasEmpleadoDetalle() {
     const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
     const nom = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getUTCDay()];
     const estado = r.estado_dia === 'inasistencia' ? 'Inasistencia' : r.estado_dia === 'descanso' ? 'Descanso' : '';
-    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
+    // Marcaciones reales (a pedido explícito del usuario, para identificar
+    // anomalías: entradas tarde, salidas muy tempranas, marcaciones
+    // faltantes) — se resalta en rojo cuando falta Entrada 1/Salida 1 en un
+    // día "trabajado" (en descanso/inasistencia es normal que no haya
+    // ninguna; que falte Entrada 2/Salida 2 también es normal — la mayoría
+    // de los días no tienen un segundo turno marcado).
+    const marcacionCell = (v) => v ? `<td>${escapeHtml(v)}</td>` : (estado ? '<td>—</td>' : '<td class="diff-neg">⚠ falta</td>');
+    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td>${marcacionCell(r.entrada1)}${marcacionCell(r.salida1)}<td>${r.entrada2 || '—'}</td><td>${r.salida2 || '—'}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
   }).join('');
   box.innerHTML = `<div class="dash-table-title">Detalle de ${escapeHtml(last.empleado_nombre)} — ${escapeHtml(last.sede_name)}${last.cargo ? ' · ' + escapeHtml(last.cargo) : ''} <button type="button" class="btn-tiny" id="horasEmpleadoCerrar" style="float:right">✕ Cerrar</button></div>
     <div class="dash-charts">
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_EXTRA.map(fila).join('')}<tr><td class="left"><b>Total general horas extra</b></td><td><b>${fmt(t.extra)}</b></td></tr></tbody></table></div>
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_OTROS.map(fila).join('')}<tr><td class="left"><b>Total trabajado</b></td><td><b>${fmt(t.total)}</b></td></tr></tbody></table></div>
     </div>
-    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
+    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
   box.classList.remove('hidden-block');
   el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; renderHorasEmpleadoDetalle(); });
 }
@@ -2734,14 +2742,15 @@ function renderHorasPlantaEmpleadoDetalle() {
     const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
     const nom = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getUTCDay()];
     const estado = r.estado_dia === 'inasistencia' ? 'Inasistencia' : r.estado_dia === 'descanso' ? 'Descanso' : '';
-    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
+    const marcacionCell = (v) => v ? `<td>${escapeHtml(v)}</td>` : (estado ? '<td>—</td>' : '<td class="diff-neg">⚠ falta</td>');
+    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td>${marcacionCell(r.entrada1)}${marcacionCell(r.salida1)}<td>${r.entrada2 || '—'}</td><td>${r.salida2 || '—'}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
   }).join('');
   box.innerHTML = `<div class="dash-table-title">Detalle de ${escapeHtml(last.empleado_nombre)} — ${escapeHtml(last.sede_name)}${last.cargo ? ' · ' + escapeHtml(last.cargo) : ''} <button type="button" class="btn-tiny" id="horasPlantaEmpleadoCerrar" style="float:right">✕ Cerrar</button></div>
     <div class="dash-charts">
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_EXTRA.map(fila).join('')}<tr><td class="left"><b>Total general horas extra</b></td><td><b>${fmt(t.extra)}</b></td></tr></tbody></table></div>
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_OTROS.map(fila).join('')}<tr><td class="left"><b>Total trabajado</b></td><td><b>${fmt(t.total)}</b></td></tr></tbody></table></div>
     </div>
-    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
+    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
   box.classList.remove('hidden-block');
   el('horasPlantaEmpleadoCerrar').addEventListener('click', () => { horasPlantaEmpleadoSel = null; renderHorasPlantaEmpleadoDetalle(); });
 }

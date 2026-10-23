@@ -110,6 +110,8 @@ describe('parseLiquidacionPage', () => {
       { str: 'Estado:', x: 182, y: 696 }, { str: ' ', x: 210, y: 696 }, { str: 'Activo', x: 212, y: 696 },
       ...HEADER,
       { str: 'Lu 28', x: 47, y: 666 },
+      { str: '08:00', x: 85, y: 666 }, { str: '13:00', x: 126, y: 666 },
+      { str: '14:00', x: 165, y: 666 }, { str: '17:00', x: 210, y: 666 },
       { str: '5', x: 259, y: 666 }, { str: '4', x: 301, y: 666 }, { str: '5', x: 356, y: 666 }
     ];
     const result = parseLiquidacionPage(items);
@@ -121,6 +123,25 @@ describe('parseLiquidacionPage', () => {
     expect(result.periodoInicio).toBe('2026-09-28');
     expect(result.periodoFin).toBe('2026-10-20');
     expect(result.dias).toHaveLength(1);
+    // Marcaciones (Entrada/Salida reales) — a pedido explícito del usuario,
+    // para identificar anomalías día por día.
+    expect(result.dias[0].entrada1).toBe('08:00');
+    expect(result.dias[0].salida1).toBe('13:00');
+    expect(result.dias[0].entrada2).toBe('14:00');
+    expect(result.dias[0].salida2).toBe('17:00');
+  });
+
+  it('marca las marcaciones como null (no "08:07" malinterpretado) cuando faltan', () => {
+    const items = buildItems([
+      { str: 'Ma 01', x: 46.09, y: 678 },
+      { str: '08:07', x: 84.67, y: 678 } // solo entrada, sin salida ni total ese día
+    ]);
+    const result = parseLiquidacionPage(items);
+    const d1 = result.dias.find((d) => d.fecha === '2026-09-01');
+    expect(d1.entrada1).toBe('08:07');
+    expect(d1.salida1).toBeNull();
+    expect(d1.entrada2).toBeNull();
+    expect(d1.salida2).toBeNull();
   });
 });
 

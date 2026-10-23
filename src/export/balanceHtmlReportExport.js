@@ -26,7 +26,8 @@ export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuesto
     fecha: r.fecha, total: Number(r.total) || 0, he: Number(r.he) || 0, hen: Number(r.hen) || 0,
     hefd: Number(r.hefd) || 0, hefn: Number(r.hefn) || 0, hdo: Number(r.hdo) || 0, rn: Number(r.rn) || 0,
     rndyf: Number(r.rndyf) || 0, dom: Number(r.dom) || 0, d: Number(r.d) || 0, f: Number(r.f) || 0,
-    comida: Number(r.comida) || 0, estadoDia: r.estado_dia || ''
+    comida: Number(r.comida) || 0, estadoDia: r.estado_dia || '',
+    entrada1: r.entrada1 || null, salida1: r.salida1 || null, entrada2: r.entrada2 || null, salida2: r.salida2 || null
   }));
   const dataJson = JSON.stringify(rawWeeks);
   const ventasJson = JSON.stringify(rawVentas);
@@ -1238,13 +1239,14 @@ function renderHorasEmpleadoDetalle(){
   const dias = rows.slice().sort((a, b) => (a.fecha < b.fecha ? -1 : 1)).map(r => {
     const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
     const estado = r.estadoDia === 'inasistencia' ? 'Inasistencia' : r.estadoDia === 'descanso' ? 'Descanso' : '';
-    return '<tr><td class="left">' + nomDia[d.getUTCDay()] + ' ' + String(r.fecha).slice(0, 10) + '</td><td>' + fmtNum(r.total) + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td><b>' + fmtNum(horaExtraDelDia(r)) + '</b></td><td class="left">' + estado + '</td></tr>';
+    const marcacionCell = (v) => v ? ('<td>' + escapeHtmlJs(v) + '</td>') : (estado ? '<td>—</td>' : '<td class="diff-neg">⚠ falta</td>');
+    return '<tr><td class="left">' + nomDia[d.getUTCDay()] + ' ' + String(r.fecha).slice(0, 10) + '</td>' + marcacionCell(r.entrada1) + marcacionCell(r.salida1) + '<td>' + (r.entrada2 || '—') + '</td><td>' + (r.salida2 || '—') + '</td><td>' + fmtNum(r.total) + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td><b>' + fmtNum(horaExtraDelDia(r)) + '</b></td><td class="left">' + estado + '</td></tr>';
   }).join('');
   box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b>Detalle de ' + last.empleadoNombre + ' — ' + last.sedeName + (last.cargo ? ' · ' + last.cargo : '') + '</b><button type="button" class="theme-btn" id="horasEmpleadoCerrar">✕ Cerrar</button></div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">' +
     '<table class="dtable"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>' + TIPOS_HORA_EXTRA.map(fila).join('') + '<tr><td class="left"><b>Total general horas extra</b></td><td><b>' + fmtNum(t.extra) + '</b></td></tr></tbody></table>' +
     '<table class="dtable"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>' + TIPOS_HORA_OTROS.map(fila).join('') + '<tr><td class="left"><b>Total trabajado</b></td><td><b>' + fmtNum(t.total) + '</b></td></tr></tbody></table></div>' +
-    '<table class="dtable"><thead><tr><th class="left">Día</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>' + dias + '</tbody></table>';
+    '<table class="dtable"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>' + dias + '</tbody></table>';
   box.classList.remove('hidden-block');
   el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; renderHorasEmpleadoDetalle(); });
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

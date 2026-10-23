@@ -22,6 +22,14 @@
 import { normText, removeAccents } from './normalize.js';
 
 const HOUR_COLUMNS = ['TOTAL', 'COMIDA', 'F', 'HDO', 'RN', 'RNDYF', 'DOM', 'D', 'HEFD', 'HEFN', 'HE', 'HEN'];
+// Las marcaciones (hora de entrada/salida reales) — a pedido explícito del
+// usuario, para poder identificar anomalías día por día (entradas tarde,
+// salidas muy tempranas, marcaciones faltantes) — no solo el total ya
+// calculado. En el encabezado real se repiten "Entrada"/"Salida" dos veces
+// cada una, siempre en ese orden (Entrada, Salida, Entrada, Salida); como el
+// nombre se repite, se identifican por POSICIÓN en el encabezado, no por label.
+const MARCACION_KEYS = ['entrada1', 'salida1', 'entrada2', 'salida2'];
+const TIME_RE = /^\d{1,2}:\d{2}$/;
 const DAY_RE = /^(LU|MA|MI|JU|VI|SA|DO)\s+\d{1,2}$/;
 const Y_TOLERANCE = 2; // pts — dos items en la misma línea visual pueden diferir un poco en y
 
@@ -63,7 +71,8 @@ function rowText(row) {
 }
 
 // Encuentra la fila de encabezado de la tabla (la que trae las 12 etiquetas
-// de horas) y devuelve el mapa de columnas [{name, x}], en orden de X.
+// de horas) y devuelve el mapa de columnas [{name, x}] (horas + marcaciones),
+// en orden de X.
 function findColumnHeader(rows) {
   for (const row of rows) {
     const byLabel = new Map();
@@ -72,16 +81,21 @@ function findColumnHeader(rows) {
       if (HOUR_COLUMNS.includes(label) && !byLabel.has(label)) byLabel.set(label, it.x);
     });
     if (HOUR_COLUMNS.every((c) => byLabel.has(c))) {
-      const columns = HOUR_COLUMNS.map((name) => ({ name, x: byLabel.get(name) })).sort((a, b) => a.x - b.x);
-      // "Entrada"/"Salida" (x2 cada una) no se necesitan como columnas propias,
-      // pero SÍ hace falta saber dónde terminan para no dejar el límite
-      // izquierdo de "Total" abierto a -Infinity — si no, un valor de hora
-      // como "08:07" (x muy a la izquierda) se cuela en la columna Total
-      // (parseFloat("08:07") da 8, un número "válido" aunque sin sentido).
-      const leftAnchorX = row.items.reduce((max, it) => {
-        const label = normText(it.str);
-        return !HOUR_COLUMNS.includes(label) && it.x < columns[0].x && it.x > max ? it.x : max;
-      }, -Infinity);
+      const hourColumns = HOUR_COLUMNS.map((name) => ({ name, x: byLabel.get(name) }));
+      // "Entrada"/"Salida" se repiten 2 veces cada una, en ese orden fijo —
+      // se toman por posición (ya vienen ordenados por X, ver groupRows).
+      const marcacionItems = row.items.filter((it) => {
+        const l = normText(it.str);
+        return l === 'ENTRADA' || l === 'SALIDA';
+      });
+      const marcacionColumns = marcacionItems.slice(0, MARCACION_KEYS.length).map((it, i) => ({ name: MARCACION_KEYS[i], x: it.x }));
+      const columns = [...hourColumns, ...marcacionColumns].sort((a, b) => a.x - b.x);
+      // Ancla el límite izquierdo de la primera columna (ahora "Entrada 1",
+      // antes era "Total" porque Entrada/Salida no tenían columna propia) en
+      // la posición de "Día" — si no, un día de 2 cifras ("28") muy a la
+      // izquierda se colaría en esa primera columna.
+      const diaItem = row.items.find((it) => normText(it.str) === 'DIA');
+      const leftAnchorX = diaItem ? diaItem.x : -Infinity;
       return { columns, leftAnchorX };
     }
   }
@@ -177,6 +191,7 @@ export function parseLiquidacionPage(items) {
     if (!diasByLabel.has(label)) {
       diasByLabel.set(label, { label, estadoDia: 'trabajado' });
       HOUR_COLUMNS.forEach((c) => { diasByLabel.get(label)[c] = null; });
+      MARCACION_KEYS.forEach((c) => { diasByLabel.get(label)[c] = null; });
     }
     const acc = diasByLabel.get(label);
 
@@ -187,7 +202,13 @@ export function parseLiquidacionPage(items) {
     row.items.forEach((it) => {
       if (it === dayItem) return;
       const col = assignColumn(it.x, bounds);
-      if (!col) return; // fuera de las columnas de horas (Entrada/Salida) — no hace falta
+      if (!col) return; // fuera de todas las columnas conocidas
+      if (MARCACION_KEYS.includes(col.name)) {
+        // Marcación (hora real, "08:07") — no es un valor numérico de horas.
+        const t = it.str.trim();
+        if (TIME_RE.test(t) && acc[col.name] == null) acc[col.name] = t;
+        return;
+      }
       const n = toNum(it.str);
       if (n != null && acc[col.name] == null) acc[col.name] = n;
     });
@@ -203,7 +224,8 @@ export function parseLiquidacionPage(items) {
       estadoDia: acc.estadoDia,
       total: acc.TOTAL, comida: acc.COMIDA, f: acc.F, hdo: acc.HDO, rn: acc.RN,
       rndyf: acc.RNDYF, dom: acc.DOM, d: acc.D, hefd: acc.HEFD, hefn: acc.HEFN,
-      he: acc.HE, hen: acc.HEN
+      he: acc.HE, hen: acc.HEN,
+      entrada1: acc.entrada1, salida1: acc.salida1, entrada2: acc.entrada2, salida2: acc.salida2
     });
   });
 
