@@ -15,9 +15,16 @@
 //
 // Un mismo día puede aparecer en más de una fila física cuando el empleado
 // tiene más de 2 marcaciones ese día (la fila de continuación solo trae más
-// Entrada/Salida, sin Total ni columnas de horas) — se detecta por el mismo
-// texto de día repetido y se fusiona quedándose con el primer valor no nulo
-// de cada columna.
+// Entrada/Salida, sin Total ni columnas de horas — típico de un segundo
+// turno nocturno que cruza medianoche, ej. 20:07 -> 06:23 del día
+// siguiente) — se detecta por el mismo texto de día repetido. Las columnas
+// de HORAS se fusionan quedándose con el primer valor no nulo (la fila de
+// continuación nunca las trae). Las MARCACIONES (entrada/salida reales) en
+// cambio se van ACUMULANDO en orden de aparición (fila principal primero,
+// luego cada fila de continuación) y se numeran correlativamente
+// (entrada1..4/salida1..4) — si solo se quedara con "el primer valor no
+// nulo" como las horas, la 2da marcación de un turno doble se perdería en
+// silencio (bug real reportado por el usuario con captura de un PDF real).
 
 import { normText, removeAccents } from './normalize.js';
 
@@ -29,6 +36,13 @@ const HOUR_COLUMNS = ['TOTAL', 'COMIDA', 'F', 'HDO', 'RN', 'RNDYF', 'DOM', 'D', 
 // cada una, siempre en ese orden (Entrada, Salida, Entrada, Salida); como el
 // nombre se repite, se identifican por POSICIÓN en el encabezado, no por label.
 const MARCACION_KEYS = ['entrada1', 'salida1', 'entrada2', 'salida2'];
+// Tope de pares entrada/salida GUARDADOS por día (no de columnas del PDF,
+// que siempre son 4) — 4 pares cubre con margen el peor caso real visto
+// (fila principal con 2 pares + 1 fila de continuación con 1 par más = 3
+// pares); si algún día excediera este tope, las marcaciones de más se
+// descartan (no hay evidencia real de que eso ocurra).
+const MAX_MARCACION_PARES = 4;
+const MARCACION_FIELDS = Array.from({ length: MAX_MARCACION_PARES }, (_, i) => [`entrada${i + 1}`, `salida${i + 1}`]).flat();
 const TIME_RE = /^\d{1,2}:\d{2}$/;
 const DAY_RE = /^(LU|MA|MI|JU|VI|SA|DO)\s+\d{1,2}$/;
 const Y_TOLERANCE = 2; // pts — dos items en la misma línea visual pueden diferir un poco en y
@@ -189,9 +203,8 @@ export function parseLiquidacionPage(items) {
     if (!dayItem) continue; // fila que no arranca con etiqueta de día (no debería pasar, pero no se rompe)
     const label = dayItem.str.trim();
     if (!diasByLabel.has(label)) {
-      diasByLabel.set(label, { label, estadoDia: 'trabajado' });
+      diasByLabel.set(label, { label, estadoDia: 'trabajado', marcaciones: [] });
       HOUR_COLUMNS.forEach((c) => { diasByLabel.get(label)[c] = null; });
-      MARCACION_KEYS.forEach((c) => { diasByLabel.get(label)[c] = null; });
     }
     const acc = diasByLabel.get(label);
 
@@ -205,8 +218,14 @@ export function parseLiquidacionPage(items) {
       if (!col) return; // fuera de todas las columnas conocidas
       if (MARCACION_KEYS.includes(col.name)) {
         // Marcación (hora real, "08:07") — no es un valor numérico de horas.
+        // Se acumula en orden (no se descarta por slot ya ocupado): el tipo
+        // (entrada/salida) sale del nombre de columna física ("entrada1"/
+        // "entrada2" -> entrada), la numeración final (entrada1..4) se
+        // asigna al terminar de recorrer TODAS las filas de este día (ver
+        // más abajo), para que una fila de continuación extienda la lista
+        // en vez de pisar/perderse en un slot ya lleno.
         const t = it.str.trim();
-        if (TIME_RE.test(t) && acc[col.name] == null) acc[col.name] = t;
+        if (TIME_RE.test(t)) acc.marcaciones.push({ tipo: col.name.startsWith('entrada') ? 'entrada' : 'salida', valor: t });
         return;
       }
       const n = toNum(it.str);
@@ -219,13 +238,25 @@ export function parseLiquidacionPage(items) {
     const dayNum = dayNumberFromLabel(acc.label);
     const fecha = resolveFecha(dayNum, periodoInicio, periodoFin);
     if (!fecha) return; // no se pudo ubicar la fecha real — se descarta esta fila, no toda la página
+
+    // Numera las marcaciones acumuladas (ver arriba): la K-ésima entrada
+    // encontrada (en orden fila principal -> filas de continuación, y
+    // dentro de cada fila en orden de X) es entradaK, igual para salida.
+    const marcacionesFinal = {};
+    MARCACION_FIELDS.forEach((f) => { marcacionesFinal[f] = null; });
+    let nEntrada = 0, nSalida = 0;
+    for (const m of acc.marcaciones) {
+      if (m.tipo === 'entrada') { nEntrada++; if (nEntrada <= MAX_MARCACION_PARES) marcacionesFinal[`entrada${nEntrada}`] = m.valor; }
+      else { nSalida++; if (nSalida <= MAX_MARCACION_PARES) marcacionesFinal[`salida${nSalida}`] = m.valor; }
+    }
+
     dias.push({
       fecha,
       estadoDia: acc.estadoDia,
       total: acc.TOTAL, comida: acc.COMIDA, f: acc.F, hdo: acc.HDO, rn: acc.RN,
       rndyf: acc.RNDYF, dom: acc.DOM, d: acc.D, hefd: acc.HEFD, hefn: acc.HEFN,
       he: acc.HE, hen: acc.HEN,
-      entrada1: acc.entrada1, salida1: acc.salida1, entrada2: acc.entrada2, salida2: acc.salida2
+      ...marcacionesFinal
     });
   });
 

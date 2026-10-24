@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseLiquidacionPage } from '../src/core/horasExtrasPdfParse.js';
-import { computeAlertas } from '../src/horasExtras/horasExtrasDashboardData.js';
+import { computeAlertas, diaAnomalias } from '../src/horasExtras/horasExtrasDashboardData.js';
 
 // Header row (y=692) — mismas columnas y X que el PDF real.
 const HEADER = [
@@ -131,6 +131,48 @@ describe('parseLiquidacionPage', () => {
     expect(result.dias[0].salida2).toBe('17:00');
   });
 
+  // Bug real reportado por el usuario con captura de pantalla de un PDF real
+  // (BLANDON GUZMAN JUAN DAVID, Alameda, periodo 2026-09-28 al 2026-10-20):
+  // un día puede traer una fila de continuación con un 2do turno (típicamente
+  // nocturno, cruzando medianoche) — antes esa 3ra/4ta marcación se perdía
+  // en silencio porque entrada1/salida1/entrada2/salida2 ya estaban llenas.
+  it('no pierde la 3ra/4ta marcación de una fila de continuación (turno doble/nocturno)', () => {
+    const items = [
+      ...METADATA,
+      ...HEADER,
+      // Ma 01: fila principal con 2 marcaciones (turno normal).
+      { str: 'Ma 01', x: 46.09, y: 678 },
+      { str: '06:35', x: 84.67, y: 678 }, { str: '11:25', x: 126.74, y: 678 },
+      { str: '12:03', x: 165.9, y: 678 }, { str: '16:58', x: 210.88, y: 678 },
+      { str: '20.5', x: 259.98, y: 678 }, { str: '3.5', x: 301.52, y: 678 },
+      { str: '3.5', x: 529.69, y: 678 }, { str: '10', x: 557.4, y: 678 },
+      // Ma 01: fila de continuación — mismo día, 2do turno nocturno
+      // (20:07 -> 06:23 del día siguiente), sin Total/columnas de horas.
+      { str: 'Ma 01', x: 46.09, y: 664 },
+      { str: '20:07', x: 84.67, y: 664 }, { str: '06:23', x: 210.88, y: 664 },
+      // Totales (cierre de la tabla).
+      { str: 'Totales', x: 127.52, y: 622 }
+    ];
+    const result = parseLiquidacionPage(items);
+    expect(result).not.toBeNull();
+    expect(result.dias).toHaveLength(1);
+    const d = result.dias.find((x) => x.fecha === '2026-09-01');
+    expect(d).toBeTruthy();
+    // Turno principal, sin tocar.
+    expect(d.entrada1).toBe('06:35');
+    expect(d.salida1).toBe('11:25');
+    expect(d.entrada2).toBe('12:03');
+    expect(d.salida2).toBe('16:58');
+    // 2do turno (de la fila de continuación) — antes se perdía.
+    expect(d.entrada3).toBe('20:07');
+    expect(d.salida3).toBe('06:23');
+    expect(d.entrada4).toBeNull();
+    expect(d.salida4).toBeNull();
+    // Los totales de horas de la fila principal no deben verse afectados.
+    expect(d.total).toBe(20.5);
+    expect(d.hen).toBe(10);
+  });
+
   it('marca las marcaciones como null (no "08:07" malinterpretado) cuando faltan', () => {
     const items = buildItems([
       { str: 'Ma 01', x: 46.09, y: 678 },
@@ -164,5 +206,25 @@ describe('computeAlertas', () => {
     expect(lastWeek).toBe('2026-09-14');
     expect(alertas[0].nivel).toBe('rojo');
     expect(alertas[0].horaExtraSemana).toBe(14);
+  });
+});
+
+describe('diaAnomalias', () => {
+  // A pedido explícito del usuario: resaltar de inmediato (1) un día con
+  // turno doble (fila de continuación en el PDF) y (2) un día con hora
+  // extra NOCTURNA (Hen/Hefn > 0), aunque no tenga turno doble.
+  it('detecta turno doble por la presencia de entrada3/salida3', () => {
+    const r = { entrada1: '06:35', salida1: '11:25', entrada2: '12:03', salida2: '16:58', entrada3: '20:07', salida3: '06:23', hen: 0, hefn: 0 };
+    expect(diaAnomalias(r)).toEqual({ turnoDoble: true, horaNocturna: false, alguna: true });
+  });
+
+  it('detecta hora extra nocturna aunque no haya turno doble', () => {
+    const r = { entrada1: '18:00', salida1: '23:00', hen: 2.5, hefn: 0 };
+    expect(diaAnomalias(r)).toEqual({ turnoDoble: false, horaNocturna: true, alguna: true });
+  });
+
+  it('un día normal (1 turno, sin extra nocturna) no marca ninguna anomalía', () => {
+    const r = { entrada1: '08:00', salida1: '17:00', hen: 0, hefn: 0 };
+    expect(diaAnomalias(r)).toEqual({ turnoDoble: false, horaNocturna: false, alguna: false });
   });
 });

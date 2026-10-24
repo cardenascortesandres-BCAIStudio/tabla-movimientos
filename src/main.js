@@ -67,7 +67,7 @@ import * as authClient from './auth/authClient.js';
 import { buildHorasExtrasPlantaReportHtml } from './export/horasExtrasPlantaReportExport.js';
 import {
   aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
-  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, LIMITE_SEMANAL, UMBRAL_ALERTA
+  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, LIMITE_SEMANAL, UMBRAL_ALERTA, diaAnomalias
 } from './horasExtras/horasExtrasDashboardData.js';
 
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
@@ -2546,6 +2546,40 @@ function renderReportesHorasView(sedeFilter, granularity) {
 // Al hacer clic en una persona (alertas, detalle o ranking): desglose de a qué
 // corresponde cada hora (diurna, nocturna, festiva...) dentro de las fechas elegidas.
 let horasEmpleadoSel = null, horasCtx = null;
+// Fila de detalle por día, compartida entre el detalle PDV y Planta (y el
+// mismo criterio se repite en los informes descargables, ver
+// src/export/horasExtrasPlantaReportExport.js/balanceHtmlReportExport.js,
+// que son HTML autocontenido y no pueden importar de acá).
+//
+// Resalta visualmente, a pedido explícito del usuario, 2 anomalías que
+// necesita identificar "de inmediato" sin tener que leer cifra por cifra:
+// - Turno doble (🔁): el día trajo una fila de continuación en el PDF (3ra/
+//   4ta marcación) — típicamente un 2do turno nocturno el mismo día.
+// - Hora extra nocturna (🌙): el día generó Hen y/o Hefn > 0.
+const HORAS_DIA_TABLE_HEADER = '<tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Entrada 3</th><th>Salida 3</th><th>Entrada 4</th><th>Salida 4</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr>';
+
+function horasDiaRowHtml(r) {
+  const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
+  const nom = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getUTCDay()];
+  const estado = r.estado_dia === 'inasistencia' ? 'Inasistencia' : r.estado_dia === 'descanso' ? 'Descanso' : '';
+  const { turnoDoble, horaNocturna } = diaAnomalias(r);
+  // Marcaciones reales (a pedido explícito del usuario, para identificar
+  // anomalías: entradas tarde, salidas muy tempranas, marcaciones
+  // faltantes) — se resalta en rojo cuando falta Entrada 1/Salida 1 en un
+  // día "trabajado" (en descanso/inasistencia es normal que no haya
+  // ninguna; que falte Entrada 2/Salida 2 también es normal — la mayoría
+  // de los días no tienen un segundo turno marcado).
+  const marcacionCell = (v) => v ? `<td>${escapeHtml(v)}</td>` : (estado ? '<td>—</td>' : '<td class="diff-neg">⚠ falta</td>');
+  // Entrada/Salida 3-4 solo existen cuando el PDF trajo una fila de
+  // continuación (turno doble) — si hay valor, se resalta (es justamente la
+  // marcación que antes se perdía/no se veía).
+  const extraCell = (v) => v ? `<td class="marcacion-extra">${escapeHtml(v)}</td>` : '<td>—</td>';
+  const badges = (turnoDoble ? ' <span class="badge-anomalia badge-doble" title="Más de un turno el mismo día (fila de continuación en el PDF)">🔁 2º turno</span>' : '')
+    + (horaNocturna ? ' <span class="badge-anomalia badge-nocturna" title="Generó horas extra nocturnas (Hen/Hefn)">🌙 Nocturna</span>' : '');
+  const rowCls = [turnoDoble ? 'anomalia-doble' : '', horaNocturna ? 'anomalia-nocturna' : ''].filter(Boolean).join(' ');
+  return `<tr class="${rowCls}"><td class="left">${nom} ${String(r.fecha).slice(0, 10)}${badges}</td>${marcacionCell(r.entrada1)}${marcacionCell(r.salida1)}<td>${r.entrada2 || '—'}</td><td>${r.salida2 || '—'}</td>${extraCell(r.entrada3)}${extraCell(r.salida3)}${extraCell(r.entrada4)}${extraCell(r.salida4)}<td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
+}
+
 function renderHorasEmpleadoDetalle() {
   const box = el('horasEmpleadoDetalle');
   const rows = (horasEmpleadoSel && horasCtx) ? horasCtx.scopedAll.filter(r => r.empleado_id === horasEmpleadoSel) : [];
@@ -2553,25 +2587,14 @@ function renderHorasEmpleadoDetalle() {
   const last = rows.reduce((m, r) => (String(r.fecha) > String(m.fecha) ? r : m), rows[0]);
   const t = sumDesglose(rows);
   const fila = ([k, label]) => `<tr><td class="left">${label}</td><td>${fmt(t[k])}</td></tr>`;
-  const dias = rows.slice().sort((a, b) => (String(a.fecha) < String(b.fecha) ? -1 : 1)).map(r => {
-    const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
-    const nom = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getUTCDay()];
-    const estado = r.estado_dia === 'inasistencia' ? 'Inasistencia' : r.estado_dia === 'descanso' ? 'Descanso' : '';
-    // Marcaciones reales (a pedido explícito del usuario, para identificar
-    // anomalías: entradas tarde, salidas muy tempranas, marcaciones
-    // faltantes) — se resalta en rojo cuando falta Entrada 1/Salida 1 en un
-    // día "trabajado" (en descanso/inasistencia es normal que no haya
-    // ninguna; que falte Entrada 2/Salida 2 también es normal — la mayoría
-    // de los días no tienen un segundo turno marcado).
-    const marcacionCell = (v) => v ? `<td>${escapeHtml(v)}</td>` : (estado ? '<td>—</td>' : '<td class="diff-neg">⚠ falta</td>');
-    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td>${marcacionCell(r.entrada1)}${marcacionCell(r.salida1)}<td>${r.entrada2 || '—'}</td><td>${r.salida2 || '—'}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
-  }).join('');
+  const dias = rows.slice().sort((a, b) => (String(a.fecha) < String(b.fecha) ? -1 : 1)).map(horasDiaRowHtml).join('');
   box.innerHTML = `<div class="dash-table-title">Detalle de ${escapeHtml(last.empleado_nombre)} — ${escapeHtml(last.sede_name)}${last.cargo ? ' · ' + escapeHtml(last.cargo) : ''} <button type="button" class="btn-tiny" id="horasEmpleadoCerrar" style="float:right">✕ Cerrar</button></div>
     <div class="dash-charts">
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_EXTRA.map(fila).join('')}<tr><td class="left"><b>Total general horas extra</b></td><td><b>${fmt(t.extra)}</b></td></tr></tbody></table></div>
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_OTROS.map(fila).join('')}<tr><td class="left"><b>Total trabajado</b></td><td><b>${fmt(t.total)}</b></td></tr></tbody></table></div>
     </div>
-    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
+    <div class="dash-table-legend"><span class="badge-anomalia badge-doble">🔁 2º turno</span> día con más de un turno marcado (revisar si es correcto) · <span class="badge-anomalia badge-nocturna">🌙 Nocturna</span> generó hora extra nocturna</div>
+    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead>${HORAS_DIA_TABLE_HEADER}</thead><tbody>${dias}</tbody></table></div>`;
   box.classList.remove('hidden-block');
   el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; renderHorasEmpleadoDetalle(); });
 }
@@ -2738,19 +2761,14 @@ function renderHorasPlantaEmpleadoDetalle() {
   const last = rows.reduce((m, r) => (String(r.fecha) > String(m.fecha) ? r : m), rows[0]);
   const t = sumDesglose(rows);
   const fila = ([k, label]) => `<tr><td class="left">${label}</td><td>${fmt(t[k])}</td></tr>`;
-  const dias = rows.slice().sort((a, b) => (String(a.fecha) < String(b.fecha) ? -1 : 1)).map(r => {
-    const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
-    const nom = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d.getUTCDay()];
-    const estado = r.estado_dia === 'inasistencia' ? 'Inasistencia' : r.estado_dia === 'descanso' ? 'Descanso' : '';
-    const marcacionCell = (v) => v ? `<td>${escapeHtml(v)}</td>` : (estado ? '<td>—</td>' : '<td class="diff-neg">⚠ falta</td>');
-    return `<tr><td class="left">${nom} ${String(r.fecha).slice(0, 10)}</td>${marcacionCell(r.entrada1)}${marcacionCell(r.salida1)}<td>${r.entrada2 || '—'}</td><td>${r.salida2 || '—'}</td><td>${fmt(r.total)}</td><td>${fmt(r.he)}</td><td>${fmt(r.hen)}</td><td>${fmt(r.hefd)}</td><td>${fmt(r.hefn)}</td><td><b>${fmt(horaExtraDelDia(r))}</b></td><td class="left">${estado}</td></tr>`;
-  }).join('');
+  const dias = rows.slice().sort((a, b) => (String(a.fecha) < String(b.fecha) ? -1 : 1)).map(horasDiaRowHtml).join('');
   box.innerHTML = `<div class="dash-table-title">Detalle de ${escapeHtml(last.empleado_nombre)} — ${escapeHtml(last.sede_name)}${last.cargo ? ' · ' + escapeHtml(last.cargo) : ''} <button type="button" class="btn-tiny" id="horasPlantaEmpleadoCerrar" style="float:right">✕ Cerrar</button></div>
     <div class="dash-charts">
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_EXTRA.map(fila).join('')}<tr><td class="left"><b>Total general horas extra</b></td><td><b>${fmt(t.extra)}</b></td></tr></tbody></table></div>
       <div class="table-scroll"><table class="dash-table"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>${TIPOS_HORA_OTROS.map(fila).join('')}<tr><td class="left"><b>Total trabajado</b></td><td><b>${fmt(t.total)}</b></td></tr></tbody></table></div>
     </div>
-    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>${dias}</tbody></table></div>`;
+    <div class="dash-table-legend"><span class="badge-anomalia badge-doble">🔁 2º turno</span> día con más de un turno marcado (revisar si es correcto) · <span class="badge-anomalia badge-nocturna">🌙 Nocturna</span> generó hora extra nocturna</div>
+    <div class="table-scroll" style="max-height:340px"><table class="dash-table"><thead>${HORAS_DIA_TABLE_HEADER}</thead><tbody>${dias}</tbody></table></div>`;
   box.classList.remove('hidden-block');
   el('horasPlantaEmpleadoCerrar').addEventListener('click', () => { horasPlantaEmpleadoSel = null; renderHorasPlantaEmpleadoDetalle(); });
 }

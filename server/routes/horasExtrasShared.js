@@ -8,7 +8,7 @@ import { sedeSlug, resolveCanonicalSedeName } from '../slug.js';
 
 const COLS = ['sede_slug', 'sede_name', 'empleado_id', 'empleado_nombre', 'cargo', 'fecha', 'estado_dia',
   'total', 'comida', 'f', 'hdo', 'rn', 'rndyf', 'dom', 'd', 'hefd', 'hefn', 'he', 'hen',
-  'entrada1', 'salida1', 'entrada2', 'salida2'];
+  'entrada1', 'salida1', 'entrada2', 'salida2', 'entrada3', 'salida3', 'entrada4', 'salida4'];
 
 export function createHorasExtrasRouter(tableName) {
   const router = Router();
@@ -25,7 +25,7 @@ export function createHorasExtrasRouter(tableName) {
       const { rows } = await query(
         `select sede_slug, sede_name, empleado_id, empleado_nombre, cargo, fecha, estado_dia,
                 total, comida, f, hdo, rn, rndyf, dom, d, hefd, hefn, he, hen,
-                entrada1, salida1, entrada2, salida2
+                entrada1, salida1, entrada2, salida2, entrada3, salida3, entrada4, salida4
          from ${tableName} order by sede_name asc, empleado_nombre asc, fecha asc`
       );
       res.json({ dias: rows });
@@ -60,7 +60,8 @@ export function createHorasExtrasRouter(tableName) {
             slug, canonicalName, d.empleadoId, d.empleadoNombre, d.cargo ?? null, d.fecha, d.estadoDia ?? null,
             d.total ?? null, d.comida ?? null, d.f ?? null, d.hdo ?? null, d.rn ?? null, d.rndyf ?? null,
             d.dom ?? null, d.d ?? null, d.hefd ?? null, d.hefn ?? null, d.he ?? null, d.hen ?? null,
-            d.entrada1 ?? null, d.salida1 ?? null, d.entrada2 ?? null, d.salida2 ?? null
+            d.entrada1 ?? null, d.salida1 ?? null, d.entrada2 ?? null, d.salida2 ?? null,
+            d.entrada3 ?? null, d.salida3 ?? null, d.entrada4 ?? null, d.salida4 ?? null
           ];
           const base = params.length;
           values.push(`(${rowValues.map((_, j) => `$${base + j + 1}`).join(', ')}, now())`);
@@ -77,7 +78,9 @@ export function createHorasExtrasRouter(tableName) {
                          dom = excluded.dom, d = excluded.d, hefd = excluded.hefd, hefn = excluded.hefn,
                          he = excluded.he, hen = excluded.hen,
                          entrada1 = excluded.entrada1, salida1 = excluded.salida1,
-                         entrada2 = excluded.entrada2, salida2 = excluded.salida2, updated_at = now()`,
+                         entrada2 = excluded.entrada2, salida2 = excluded.salida2,
+                         entrada3 = excluded.entrada3, salida3 = excluded.salida3,
+                         entrada4 = excluded.entrada4, salida4 = excluded.salida4, updated_at = now()`,
           params
         );
         upserted += chunk.length;

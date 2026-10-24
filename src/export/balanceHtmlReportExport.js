@@ -27,7 +27,8 @@ export function buildBalanceReportHtml(rawWeekRows, rawVentaRows, rawPresupuesto
     hefd: Number(r.hefd) || 0, hefn: Number(r.hefn) || 0, hdo: Number(r.hdo) || 0, rn: Number(r.rn) || 0,
     rndyf: Number(r.rndyf) || 0, dom: Number(r.dom) || 0, d: Number(r.d) || 0, f: Number(r.f) || 0,
     comida: Number(r.comida) || 0, estadoDia: r.estado_dia || '',
-    entrada1: r.entrada1 || null, salida1: r.salida1 || null, entrada2: r.entrada2 || null, salida2: r.salida2 || null
+    entrada1: r.entrada1 || null, salida1: r.salida1 || null, entrada2: r.entrada2 || null, salida2: r.salida2 || null,
+    entrada3: r.entrada3 || null, salida3: r.salida3 || null, entrada4: r.entrada4 || null, salida4: r.salida4 || null
   }));
   const dataJson = JSON.stringify(rawWeeks);
   const ventasJson = JSON.stringify(rawVentas);
@@ -264,6 +265,14 @@ table.dtable td.left{text-align:left;}
 .diff-neg{color:#ff3b6e;font-weight:700;}
 .diff-zero{color:#2be3a8;font-weight:700;}
 .hint{font-size:11.5px;color:var(--muted);margin-top:18px;}
+table.dtable tr.anomalia-doble td{background:rgba(240,196,25,.14);}
+table.dtable tr.anomalia-nocturna td{background:rgba(124,92,255,.16);}
+table.dtable tr.anomalia-doble.anomalia-nocturna td{background:linear-gradient(90deg,rgba(240,196,25,.14),rgba(124,92,255,.16));}
+table.dtable td.marcacion-extra{color:#f0c419;font-weight:700;}
+.badge-anomalia{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;white-space:nowrap;}
+.badge-anomalia.badge-doble{background:rgba(240,196,25,.22);color:#b9890a;}
+.badge-anomalia.badge-nocturna{background:rgba(124,92,255,.22);color:#6a4ee0;}
+.dash-table-legend{font-size:11.5px;color:var(--muted);margin:8px 0;}
 
 .periodo-picker{position:relative;display:inline-block;}
 .periodo-popover{position:absolute;top:calc(100% + 6px);left:0;z-index:20;width:260px;max-width:80vw;background:var(--panel-bg);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.35);padding:10px;}
@@ -440,6 +449,12 @@ const LIMITE_SEMANAL_HORAS = 12;
 const UMBRAL_ALERTA_HORAS = 10;
 function horaExtraDelDia(row){ return (row.he || 0) + (row.hen || 0) + (row.hefd || 0) + (row.hefn || 0); }
 function evaluarAlertaHoras(h){ if (h > LIMITE_SEMANAL_HORAS) return 'rojo'; if (h >= UMBRAL_ALERTA_HORAS) return 'amarillo'; return 'verde'; }
+// Anomalías de un día (puerto de diaAnomalias en horasExtrasDashboardData.js) — ver src/main.js para el detalle.
+function diaAnomalias(row){
+  const turnoDoble = Boolean(row.entrada3 || row.salida3 || row.entrada4 || row.salida4);
+  const horaNocturna = (row.hen || 0) > 0 || (row.hefn || 0) > 0;
+  return { turnoDoble, horaNocturna };
+}
 function aggregateHorasByEmpleado(rawHoras, granularity){
   const accByEmpleado = new Map();
   rawHoras.forEach(row => {
@@ -1239,14 +1254,20 @@ function renderHorasEmpleadoDetalle(){
   const dias = rows.slice().sort((a, b) => (a.fecha < b.fecha ? -1 : 1)).map(r => {
     const d = new Date(String(r.fecha).slice(0, 10) + 'T00:00:00Z');
     const estado = r.estadoDia === 'inasistencia' ? 'Inasistencia' : r.estadoDia === 'descanso' ? 'Descanso' : '';
+    const anom = diaAnomalias(r);
     const marcacionCell = (v) => v ? ('<td>' + escapeHtmlJs(v) + '</td>') : (estado ? '<td>—</td>' : '<td class="diff-neg">⚠ falta</td>');
-    return '<tr><td class="left">' + nomDia[d.getUTCDay()] + ' ' + String(r.fecha).slice(0, 10) + '</td>' + marcacionCell(r.entrada1) + marcacionCell(r.salida1) + '<td>' + (r.entrada2 || '—') + '</td><td>' + (r.salida2 || '—') + '</td><td>' + fmtNum(r.total) + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td><b>' + fmtNum(horaExtraDelDia(r)) + '</b></td><td class="left">' + estado + '</td></tr>';
+    const extraCell = (v) => v ? ('<td class="marcacion-extra">' + escapeHtmlJs(v) + '</td>') : '<td>—</td>';
+    const badges = (anom.turnoDoble ? ' <span class="badge-anomalia badge-doble" title="Más de un turno el mismo día (fila de continuación en el PDF)">🔁 2º turno</span>' : '') +
+      (anom.horaNocturna ? ' <span class="badge-anomalia badge-nocturna" title="Generó horas extra nocturnas (Hen/Hefn)">🌙 Nocturna</span>' : '');
+    const rowCls = [anom.turnoDoble ? 'anomalia-doble' : '', anom.horaNocturna ? 'anomalia-nocturna' : ''].filter(Boolean).join(' ');
+    return '<tr class="' + rowCls + '"><td class="left">' + nomDia[d.getUTCDay()] + ' ' + String(r.fecha).slice(0, 10) + badges + '</td>' + marcacionCell(r.entrada1) + marcacionCell(r.salida1) + '<td>' + (r.entrada2 || '—') + '</td><td>' + (r.salida2 || '—') + '</td>' + extraCell(r.entrada3) + extraCell(r.salida3) + extraCell(r.entrada4) + extraCell(r.salida4) + '<td>' + fmtNum(r.total) + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td><b>' + fmtNum(horaExtraDelDia(r)) + '</b></td><td class="left">' + estado + '</td></tr>';
   }).join('');
   box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b>Detalle de ' + last.empleadoNombre + ' — ' + last.sedeName + (last.cargo ? ' · ' + last.cargo : '') + '</b><button type="button" class="theme-btn" id="horasEmpleadoCerrar">✕ Cerrar</button></div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">' +
     '<table class="dtable"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>' + TIPOS_HORA_EXTRA.map(fila).join('') + '<tr><td class="left"><b>Total general horas extra</b></td><td><b>' + fmtNum(t.extra) + '</b></td></tr></tbody></table>' +
     '<table class="dtable"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>' + TIPOS_HORA_OTROS.map(fila).join('') + '<tr><td class="left"><b>Total trabajado</b></td><td><b>' + fmtNum(t.total) + '</b></td></tr></tbody></table></div>' +
-    '<table class="dtable"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>' + dias + '</tbody></table>';
+    '<div class="dash-table-legend"><span class="badge-anomalia badge-doble">🔁 2º turno</span> día con más de un turno marcado · <span class="badge-anomalia badge-nocturna">🌙 Nocturna</span> generó hora extra nocturna</div>' +
+    '<table class="dtable"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Entrada 3</th><th>Salida 3</th><th>Entrada 4</th><th>Salida 4</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>' + dias + '</tbody></table>';
   box.classList.remove('hidden-block');
   el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; renderHorasEmpleadoDetalle(); });
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

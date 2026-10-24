@@ -325,6 +325,20 @@ table.dash-table td{padding:6px 8px;text-align:right;color:var(--dv-text);border
 table.dash-table td.left{text-align:left;}
 table.dash-table td.code{color:var(--dv-text-muted);font-size:11px;}
 
+/* Anomalías de Horas Extras (turno doble / hora extra nocturna) — a pedido
+   explícito del usuario, para identificarlas de un vistazo en la tabla de
+   detalle por día, no solo al leer la cifra. Colores fijos (no ligados a
+   --dv-neg/--dv-pos) porque es una categoría propia, distinta de
+   positivo/negativo, y debe verse igual en cualquier plantilla de color. */
+table.dash-table tr.anomalia-doble td{background:rgba(240,196,25,.14);}
+table.dash-table tr.anomalia-nocturna td{background:rgba(124,92,255,.16);}
+table.dash-table tr.anomalia-doble.anomalia-nocturna td{background:linear-gradient(90deg,rgba(240,196,25,.14),rgba(124,92,255,.16));}
+table.dash-table td.marcacion-extra{color:#f0c419;font-weight:700;}
+.badge-anomalia{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;white-space:nowrap;}
+.badge-anomalia.badge-doble{background:rgba(240,196,25,.22);color:#b9890a;}
+.badge-anomalia.badge-nocturna{background:rgba(124,92,255,.22);color:#6a4ee0;}
+.dash-table-legend{font-size:11.5px;color:var(--dv-text-muted-2);margin:8px 0;}
+
 /* ---- Balance semanal ---- */
 .balance-drop-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;}
 @media (max-width:760px){.balance-drop-grid{grid-template-columns:1fr;}}

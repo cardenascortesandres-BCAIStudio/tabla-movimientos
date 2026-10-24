@@ -19,6 +19,20 @@ export function horaExtraDelDia(row) {
   return (Number(row.he) || 0) + (Number(row.hen) || 0) + (Number(row.hefd) || 0) + (Number(row.hefn) || 0);
 }
 
+// Anomalías de un día — a pedido explícito del usuario, para identificarlas
+// "de inmediato" visualmente (no solo al leer la cifra con calma):
+// - turnoDoble: el día tiene un 3er par de marcaciones (entrada3/salida3),
+//   es decir el PDF trajo una "fila de continuación" para ese día — un
+//   segundo turno el mismo día calendario (típicamente nocturno, cruzando
+//   medianoche), que "no debería pasar" según el usuario.
+// - horaNocturna: el día generó horas extra NOCTURNAS (Hen y/o Hefn) — el
+//   usuario las marcó como anormales por sí solas, incluso sin turno doble.
+export function diaAnomalias(row) {
+  const turnoDoble = Boolean(row.entrada3 || row.salida3 || row.entrada4 || row.salida4);
+  const horaNocturna = (Number(row.hen) || 0) > 0 || (Number(row.hefn) || 0) > 0;
+  return { turnoDoble, horaNocturna, alguna: turnoDoble || horaNocturna };
+}
+
 export function evaluarAlerta(horasExtraSemana) {
   if (horasExtraSemana > LIMITE_SEMANAL) return 'rojo';
   if (horasExtraSemana >= UMBRAL_ALERTA) return 'amarillo';
