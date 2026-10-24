@@ -27,11 +27,24 @@ function guessSedeFromFileName(fileName) {
   return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
 }
 
+// RH organiza los PDF de cada semana en su propia subcarpeta (ej. "21-27
+// SEPTIEMBRE/", "28 SEPTIEMBRE-18 OCTUBRE/") — hay que recorrerlas todas,
+// no solo los .pdf sueltos en la raíz, o se queda corto el backfill.
+function findPdfsRecursive(dir) {
+  let out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out = out.concat(findPdfsRecursive(full));
+    else if (/\.pdf$/i.test(entry.name)) out.push(full);
+  }
+  return out;
+}
+
 async function main() {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const { parseLiquidacionPage } = await import('../src/core/horasExtrasPdfParse.js');
 
-  const files = fs.readdirSync(DIR).filter((f) => /\.pdf$/i.test(f));
+  const files = findPdfsRecursive(DIR);
   if (!files.length) {
     console.error('No se encontró ningún PDF en', DIR);
     process.exitCode = 1;
@@ -41,8 +54,8 @@ async function main() {
   const allDias = []; // filas planas listas para el POST /api/horas-extras/dias
   const bySede = {};
 
-  for (const file of files) {
-    const full = path.join(DIR, file);
+  for (const full of files) {
+    const file = path.relative(DIR, full);
     const data = new Uint8Array(fs.readFileSync(full));
     const doc = await pdfjsLib.getDocument({ data, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true }).promise;
     console.log('\n########## ' + file + ' (' + doc.numPages + ' páginas) ##########');
@@ -54,7 +67,7 @@ async function main() {
       const result = parseLiquidacionPage(items);
       if (!result) { omitidas++; console.log('  [pág ' + p + '] ⚠ no se pudo parsear (no calza con el formato esperado)'); continue; }
       empleados++;
-      const sedeName = result.sede || guessSedeFromFileName(file);
+      const sedeName = result.sede || guessSedeFromFileName(path.basename(file));
       (bySede[sedeName] ||= { empleados: 0, dias: 0, horaExtraTotal: 0 });
       bySede[sedeName].empleados++;
       result.dias.forEach((d) => {
@@ -64,7 +77,9 @@ async function main() {
         allDias.push({
           sedeName, empleadoId: result.empleadoId, empleadoNombre: result.nombre, cargo: result.cargo,
           fecha: d.fecha, estadoDia: d.estadoDia, total: d.total, comida: d.comida, f: d.f, hdo: d.hdo,
-          rn: d.rn, rndyf: d.rndyf, dom: d.dom, d: d.d, hefd: d.hefd, hefn: d.hefn, he: d.he, hen: d.hen
+          rn: d.rn, rndyf: d.rndyf, dom: d.dom, d: d.d, hefd: d.hefd, hefn: d.hefn, he: d.he, hen: d.hen,
+          entrada1: d.entrada1, salida1: d.salida1, entrada2: d.entrada2, salida2: d.salida2,
+          entrada3: d.entrada3, salida3: d.salida3, entrada4: d.entrada4, salida4: d.salida4
         });
       });
     }
@@ -100,7 +115,8 @@ async function main() {
   }
 
   const COLS = ['sede_slug', 'sede_name', 'empleado_id', 'empleado_nombre', 'cargo', 'fecha', 'estado_dia',
-    'total', 'comida', 'f', 'hdo', 'rn', 'rndyf', 'dom', 'd', 'hefd', 'hefn', 'he', 'hen'];
+    'total', 'comida', 'f', 'hdo', 'rn', 'rndyf', 'dom', 'd', 'hefd', 'hefn', 'he', 'hen',
+    'entrada1', 'salida1', 'entrada2', 'salida2', 'entrada3', 'salida3', 'entrada4', 'salida4'];
   const CHUNK = 300;
   let upserted = 0;
   for (let i = 0; i < allDias.length; i += CHUNK) {
@@ -112,7 +128,9 @@ async function main() {
       const rowValues = [
         slug, canonicalName, d.empleadoId, d.empleadoNombre, d.cargo ?? null, d.fecha, d.estadoDia ?? null,
         d.total ?? null, d.comida ?? null, d.f ?? null, d.hdo ?? null, d.rn ?? null, d.rndyf ?? null,
-        d.dom ?? null, d.d ?? null, d.hefd ?? null, d.hefn ?? null, d.he ?? null, d.hen ?? null
+        d.dom ?? null, d.d ?? null, d.hefd ?? null, d.hefn ?? null, d.he ?? null, d.hen ?? null,
+        d.entrada1 ?? null, d.salida1 ?? null, d.entrada2 ?? null, d.salida2 ?? null,
+        d.entrada3 ?? null, d.salida3 ?? null, d.entrada4 ?? null, d.salida4 ?? null
       ];
       const base = params.length;
       values.push('(' + rowValues.map((_, j) => '$' + (base + j + 1)).join(', ') + ', now())');
@@ -127,7 +145,11 @@ async function main() {
                      estado_dia = excluded.estado_dia, total = excluded.total, comida = excluded.comida,
                      f = excluded.f, hdo = excluded.hdo, rn = excluded.rn, rndyf = excluded.rndyf,
                      dom = excluded.dom, d = excluded.d, hefd = excluded.hefd, hefn = excluded.hefn,
-                     he = excluded.he, hen = excluded.hen, updated_at = now()`,
+                     he = excluded.he, hen = excluded.hen,
+                     entrada1 = excluded.entrada1, salida1 = excluded.salida1,
+                     entrada2 = excluded.entrada2, salida2 = excluded.salida2,
+                     entrada3 = excluded.entrada3, salida3 = excluded.salida3,
+                     entrada4 = excluded.entrada4, salida4 = excluded.salida4, updated_at = now()`,
       params
     );
     upserted += chunk.length;
