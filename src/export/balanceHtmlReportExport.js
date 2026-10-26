@@ -181,6 +181,7 @@ ${VIEWER_CSS}
       <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
       <tbody id="horasAlertasTableBody"></tbody>
     </table>
+    <div class="chart-box" style="margin-bottom:16px"><canvas id="chartHorasSedes"></canvas></div>
     <div class="chart-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
       <div class="chart-box"><canvas id="chartHorasTiempo"></canvas></div>
       <div class="chart-box"><canvas id="chartHorasRanking"></canvas></div>
@@ -1169,7 +1170,7 @@ function renderMermasDrilldown(bloque, sedeFilter){
 // respeta el filtro de sede compartido (la granularidad NO, las alertas
 // siempre son semanales por ley) y tiene su propio selector de "Empleado".
 function viewHoras(){
-  destroyChart('horasTiempo'); destroyChart('horasRanking');
+  destroyChart('horasTiempo'); destroyChart('horasRanking'); destroyChart('horasSedes');
   if (!RAW_HORAS.length) return;
   const sedeFilter = el('filterSede').value;
 
@@ -1195,8 +1196,10 @@ function viewHoras(){
   const rojos = alertas.filter(a => a.nivel === 'rojo');
   const amarillos = alertas.filter(a => a.nivel === 'amarillo');
   const topEmpleado = alertas[0];
+  const totalHorasExtraAcumulado = rowsInSede.reduce((a, r) => a + horaExtraDelDia(r), 0);
 
   el('horasKpiGrid').innerHTML =
+    '<div class="kpi-card"><div class="kpi-label">Horas extra acumuladas' + (sedeFilter ? ' — ' + sedeFilter : ' (total, todas las sedes)') + '</div><div class="kpi-value">' + fmtNum(totalHorasExtraAcumulado) + '</div></div>' +
     '<div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">' + new Set(rowsInSede.map(r => r.empleadoId)).size + '</div></div>' +
     '<div class="kpi-card ' + (rojos.length ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">🔴 Pasados del límite (' + LIMITE_SEMANAL_HORAS + 'h/semana)</div><div class="kpi-value">' + rojos.length + '</div></div>' +
     '<div class="kpi-card ' + (amarillos.length ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">🟡 Por pasarse (≥ ' + UMBRAL_ALERTA_HORAS + 'h/semana)</div><div class="kpi-value">' + amarillos.length + '</div></div>' +
@@ -1208,6 +1211,17 @@ function viewHoras(){
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
     return '<tr class="row-click" data-emp="' + a.empleadoId + '" title="Ver el detalle de esta persona"><td class="left">' + a.nombre + '</td><td class="left">' + a.sedeName + '</td><td class="left">' + (a.cargo || '—') + '</td><td class="' + cls + '">' + fmtNum(a.horaExtraSemana) + '</td><td>' + icon + '</td></tr>';
   }).join('') || '<tr><td colspan="5" class="left">Nadie en alerta en ' + (lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos') + '.</td></tr>';
+
+  // "Acumulado por sede" (cada punto) — a pedido explícito del usuario.
+  const calSedes = aggregateHorasBySede(RAW_HORAS, gran);
+  const sedesAcc = Array.from(calSedes.bySede.entries())
+    .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
+    .map(([sedeName, points]) => [sedeName, points.filter(p => scopeSet.has(p.periodKey)).reduce((a, p) => a + p.horaExtra, 0)])
+    .sort((a, b) => b[1] - a[1]);
+  charts.horasSedes = new Chart(el('chartHorasSedes').getContext('2d'), {
+    type: 'bar', data: { labels: sedesAcc.map(([s]) => s), datasets: [{ data: sedesAcc.map(([, v]) => v), backgroundColor: sedesAcc.map(() => currentAccent()), borderRadius: 6 }] },
+    options: chartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], null, fmtNum)
+  });
 
   const granularity = gran;
   const sedeData = aggregateHorasBySede(rows, granularity);
