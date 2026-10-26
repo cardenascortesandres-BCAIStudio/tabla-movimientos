@@ -466,6 +466,9 @@
         <div class="hidden-block" id="reportesHorasView">
           <div class="dash-filters">
             <select id="horasReportesEmpleadoFilter"></select>
+            <label class="dash-filter-fecha">Desde <input type="date" id="horasFechaDesde"></label>
+            <label class="dash-filter-fecha">Hasta <input type="date" id="horasFechaHasta"></label>
+            <button type="button" class="btn-tiny" id="horasFechaLimpiarBtn">✕ Quitar fechas exactas</button>
             <button type="button" class="btn-secondary" id="horasDownloadBtn">⬇ Descargar informe de Horas Extras (HTML)</button>
           </div>
           <div class="kpi-grid" id="horasReportesKpiGrid"></div>
@@ -621,6 +624,9 @@
               <div class="periodo-popover-list" id="horasPlantaPeriodList"></div>
             </div>
           </div>
+          <label class="dash-filter-fecha">Desde <input type="date" id="horasPlantaFechaDesde"></label>
+          <label class="dash-filter-fecha">Hasta <input type="date" id="horasPlantaFechaHasta"></label>
+          <button type="button" class="btn-tiny" id="horasPlantaFechaLimpiarBtn">✕ Quitar fechas exactas</button>
         </div>
         <div class="kpi-grid" id="horasPlantaReportesKpiGrid"></div>
 

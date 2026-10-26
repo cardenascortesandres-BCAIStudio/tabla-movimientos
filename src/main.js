@@ -846,6 +846,13 @@ let reportesSelectedPeriods = null; // Set<periodKey> | null (null = todos los p
 let reportesMermasSelectedPeriods = null;
 // Horas Extras también tiene su propio calendario (horas_extra_dias, día a día) — para poder ver quién hizo más horas extra en la semana elegida.
 let reportesHorasSelectedPeriods = null;
+// Selector de fechas EXACTAS (calendario Desde/Hasta) — a pedido explícito
+// del usuario, además de los chips de semana/mes/año: deja acotar a días
+// puntuales (ej. "del 5 al 10") en vez de solo periodos completos. Cuando
+// están puestas, acotan el conjunto de días ANTES de agregar por semana/mes/
+// año (ver renderReportesHorasView) — los chips de "📅 Fechas" siguen
+// funcionando dentro de ese rango.
+let horasFechaDesde = null, horasFechaHasta = null;
 // Sub-vista activa del dashboard unificado: 'tiempo' | 'sedes' | 'ranking' | 'presupuesto'.
 // "presupuesto" ignora el selector de métrica/granularidad (siempre es venta
 // real del mes en curso contra la meta) — las otras 3 sí dependen de ellos.
@@ -2474,13 +2481,23 @@ function horasCorteLabel(rows) {
 function renderReportesHorasView(sedeFilter, granularity) {
   if (!horasExtrasAllDias || !horasExtrasAllDias.length) return;
 
+  // Calendario EXACTO (Desde/Hasta) — acota los días ANTES de agregar por
+  // semana/mes/año, para poder elegir un rango puntual (ej. "del 5 al 10")
+  // en vez de solo semanas/meses/años completos.
+  const baseDias = (horasFechaDesde || horasFechaHasta)
+    ? horasExtrasAllDias.filter(r => {
+        const f = String(r.fecha).slice(0, 10);
+        return (!horasFechaDesde || f >= horasFechaDesde) && (!horasFechaHasta || f <= horasFechaHasta);
+      })
+    : horasExtrasAllDias;
+
   // Calendario propio (el botón "📅 Fechas"): con un solo mes/año cargado se baja a semanas.
   let gran = granularity;
-  let cal = aggregateHorasBySede(horasExtrasAllDias, gran);
-  if (cal.periodKeysSorted.length < 2 && gran !== 'week') { gran = 'week'; cal = aggregateHorasBySede(horasExtrasAllDias, gran); }
+  let cal = aggregateHorasBySede(baseDias, gran);
+  if (cal.periodKeysSorted.length < 2 && gran !== 'week') { gran = 'week'; cal = aggregateHorasBySede(baseDias, gran); }
   renderReportesPeriodChips(cal.periodKeysSorted, k => (cal.byPeriod.get(k) || [])[0]?.periodLabel || k, gran);
   const selectedSet = reportesHorasSelectedPeriods || new Set(cal.periodKeysSorted);
-  const scopedAll = horasExtrasAllDias.filter(r => selectedSet.has(horasPeriodKeyFor(r.fecha, gran)));
+  const scopedAll = baseDias.filter(r => selectedSet.has(horasPeriodKeyFor(r.fecha, gran)));
   const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sede_name === sedeFilter) : scopedAll;
   const empleadoNames = Array.from(new Map(rowsInSede.map(r => [r.empleado_id, r.empleado_nombre])).entries());
   const empSel = el('horasReportesEmpleadoFilter');
@@ -2637,6 +2654,7 @@ function renderHorasEmpleadoDetalle() {
 let horasPlantaAllDias = null; // filas crudas de horas_extra_planta_dias (todas las sedes)
 let chartHorasPlantaTiempo, chartHorasPlantaRanking, chartHorasPlantaSedes;
 let horasPlantaSelectedPeriods = null; // Set<periodKey> | null (null = todos)
+let horasPlantaFechaDesde = null, horasPlantaFechaHasta = null; // calendario Desde/Hasta exacto
 let horasPlantaEmpleadoSel = null, horasPlantaCtx = null;
 
 async function loadHorasPlantaReportesData() {
@@ -2705,13 +2723,21 @@ function initHorasPlantaPeriodPopover() {
 function renderReportesHorasPlantaView() {
   if (!horasPlantaAllDias || !horasPlantaAllDias.length) return;
 
+  // Calendario EXACTO (Desde/Hasta) — ver renderReportesHorasView (PDV).
+  const baseDias = (horasPlantaFechaDesde || horasPlantaFechaHasta)
+    ? horasPlantaAllDias.filter(r => {
+        const f = String(r.fecha).slice(0, 10);
+        return (!horasPlantaFechaDesde || f >= horasPlantaFechaDesde) && (!horasPlantaFechaHasta || f <= horasPlantaFechaHasta);
+      })
+    : horasPlantaAllDias;
+
   // Calendario propio (el botón "📅 Fechas"): con un solo mes/año cargado se baja a semanas.
   let gran = el('horasPlantaReportesGranularity').value;
-  let cal = aggregateHorasBySede(horasPlantaAllDias, gran);
-  if (cal.periodKeysSorted.length < 2 && gran !== 'week') { gran = 'week'; cal = aggregateHorasBySede(horasPlantaAllDias, gran); }
+  let cal = aggregateHorasBySede(baseDias, gran);
+  if (cal.periodKeysSorted.length < 2 && gran !== 'week') { gran = 'week'; cal = aggregateHorasBySede(baseDias, gran); }
   renderHorasPlantaPeriodPopover(cal.periodKeysSorted, k => (cal.byPeriod.get(k) || [])[0]?.periodLabel || k);
   const selectedSet = horasPlantaSelectedPeriods || new Set(cal.periodKeysSorted);
-  const scopedAll = horasPlantaAllDias.filter(r => selectedSet.has(horasPeriodKeyFor(r.fecha, gran)));
+  const scopedAll = baseDias.filter(r => selectedSet.has(horasPeriodKeyFor(r.fecha, gran)));
 
   const sedeSel = el('horasPlantaReportesSedeFilter');
   const prevSede = sedeSel.value;
@@ -3163,6 +3189,14 @@ el('backFromHorasExtrasBtn').addEventListener('click', () => switchFlow('choice'
 wireMultiFileDropzone('horasDropzone', 'horasFileInput', horasUploader.handleFiles);
 el('horasSaveBtn').addEventListener('click', horasUploader.saveAll);
 el('horasReportesEmpleadoFilter').addEventListener('change', renderReportes);
+el('horasFechaDesde').addEventListener('change', () => { horasFechaDesde = el('horasFechaDesde').value || null; reportesHorasSelectedPeriods = null; renderReportes(); });
+el('horasFechaHasta').addEventListener('change', () => { horasFechaHasta = el('horasFechaHasta').value || null; reportesHorasSelectedPeriods = null; renderReportes(); });
+el('horasFechaLimpiarBtn').addEventListener('click', () => {
+  horasFechaDesde = null; horasFechaHasta = null;
+  el('horasFechaDesde').value = ''; el('horasFechaHasta').value = '';
+  reportesHorasSelectedPeriods = null;
+  renderReportes();
+});
 for (const id of ['horasAlertasTableBody', 'horasReportesTableBody']) {
   el(id).addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-emp]');
@@ -3180,6 +3214,14 @@ el('horasPlantaSaveBtn').addEventListener('click', horasPlantaUploader.saveAll);
 el('horasPlantaReportesSedeFilter').addEventListener('change', renderReportesHorasPlantaView);
 el('horasPlantaReportesEmpleadoFilter').addEventListener('change', renderReportesHorasPlantaView);
 el('horasPlantaReportesGranularity').addEventListener('change', () => { horasPlantaSelectedPeriods = null; renderReportesHorasPlantaView(); });
+el('horasPlantaFechaDesde').addEventListener('change', () => { horasPlantaFechaDesde = el('horasPlantaFechaDesde').value || null; horasPlantaSelectedPeriods = null; renderReportesHorasPlantaView(); });
+el('horasPlantaFechaHasta').addEventListener('change', () => { horasPlantaFechaHasta = el('horasPlantaFechaHasta').value || null; horasPlantaSelectedPeriods = null; renderReportesHorasPlantaView(); });
+el('horasPlantaFechaLimpiarBtn').addEventListener('click', () => {
+  horasPlantaFechaDesde = null; horasPlantaFechaHasta = null;
+  el('horasPlantaFechaDesde').value = ''; el('horasPlantaFechaHasta').value = '';
+  horasPlantaSelectedPeriods = null;
+  renderReportesHorasPlantaView();
+});
 el('horasPlantaDownloadBtn').addEventListener('click', downloadHorasPlantaReport);
 initHorasPlantaPeriodPopover();
 for (const id of ['horasPlantaAlertasTableBody', 'horasPlantaReportesTableBody']) {
