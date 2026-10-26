@@ -67,6 +67,9 @@ ${VIEWER_CSS}
     </select>
     <select id="filterSede"></select>
     <select id="filterEmpleadoHoras"></select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Desde <input type="date" id="horasFechaDesde"></label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Hasta <input type="date" id="horasFechaHasta"></label>
+    <button type="button" class="theme-btn" id="horasFechaLimpiarBtn">✕ Quitar fechas exactas</button>
     <div class="periodo-picker">
       <button type="button" class="theme-btn" id="periodoBtn">📅 Fechas</button>
       <div class="periodo-popover hidden-block" id="periodoPopover">
@@ -211,16 +214,18 @@ function aggregateHorasBySede(rawHoras, granularity){
     if (!periods.has(periodKey)) periods.set(periodKey, { periodKey, sedeName, horaExtra: 0 });
     periods.get(periodKey).horaExtra += horaExtraDelDia(row);
   });
+  const bySede = new Map();
   const byPeriod = new Map();
-  accBySede.forEach(periods => {
-    Array.from(periods.values()).forEach(acc => {
-      const p = { ...acc, periodLabel: ventaPeriodLabel(acc.periodKey, granularity) };
+  accBySede.forEach((periods, sedeName) => {
+    const points = Array.from(periods.values()).map(acc => ({ ...acc, periodLabel: ventaPeriodLabel(acc.periodKey, granularity) }));
+    bySede.set(sedeName, points);
+    points.forEach(p => {
       if (!byPeriod.has(p.periodKey)) byPeriod.set(p.periodKey, []);
       byPeriod.get(p.periodKey).push(p);
     });
   });
   const sedeNames = Array.from(accBySede.keys());
-  return { byPeriod, periodKeysSorted: Array.from(byPeriod.keys()).sort(), sedeNames };
+  return { bySede, byPeriod, periodKeysSorted: Array.from(byPeriod.keys()).sort(), sedeNames };
 }
 function lastCompleteWeekHoras(periodKeysSorted, maxFecha){
   if (!maxFecha) return periodKeysSorted[periodKeysSorted.length - 1] || null;
@@ -312,10 +317,20 @@ let charts = {};
 function destroyChart(id){ if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
 
 let selectedPeriods = null; // Set<periodKey> | null (null = todas)
+// Calendario EXACTO (Desde/Hasta) — ver balanceHtmlReportExport.js (mismo criterio).
+let horasFechaDesde = null, horasFechaHasta = null;
+function horasBaseDias(){
+  if (!horasFechaDesde && !horasFechaHasta) return RAW_HORAS;
+  return RAW_HORAS.filter(r => {
+    const f = String(r.fecha).slice(0, 10);
+    return (!horasFechaDesde || f >= horasFechaDesde) && (!horasFechaHasta || f <= horasFechaHasta);
+  });
+}
 function horasPeriodData(){
   let g = el('filterGranularidad').value;
-  let d = aggregateHorasBySede(RAW_HORAS, g);
-  if (d.periodKeysSorted.length < 2 && g !== 'week') { g = 'week'; d = aggregateHorasBySede(RAW_HORAS, g); }
+  const base = horasBaseDias();
+  let d = aggregateHorasBySede(base, g);
+  if (d.periodKeysSorted.length < 2 && g !== 'week') { g = 'week'; d = aggregateHorasBySede(base, g); }
   return { granularity: g, periodKeysSorted: d.periodKeysSorted, byPeriod: Array.from(d.byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })) };
 }
 function renderPeriodPopover(){
@@ -351,6 +366,14 @@ function initFilters(){
   el('filterSede').addEventListener('change', viewHoras);
   el('filterEmpleadoHoras').addEventListener('change', viewHoras);
   el('filterGranularidad').addEventListener('change', () => { selectedPeriods = null; viewHoras(); });
+  el('horasFechaDesde').addEventListener('change', () => { horasFechaDesde = el('horasFechaDesde').value || null; selectedPeriods = null; viewHoras(); });
+  el('horasFechaHasta').addEventListener('change', () => { horasFechaHasta = el('horasFechaHasta').value || null; selectedPeriods = null; viewHoras(); });
+  el('horasFechaLimpiarBtn').addEventListener('click', () => {
+    horasFechaDesde = null; horasFechaHasta = null;
+    el('horasFechaDesde').value = ''; el('horasFechaHasta').value = '';
+    selectedPeriods = null;
+    viewHoras();
+  });
   const btn = el('periodoBtn'), popover = el('periodoPopover');
   btn.addEventListener('click', (e) => { e.stopPropagation(); popover.classList.toggle('hidden-block'); });
   document.addEventListener('click', (e) => { if (!popover.contains(e.target) && e.target !== btn) popover.classList.add('hidden-block'); });
@@ -384,7 +407,7 @@ function viewHoras(){
   const calH = horasPeriodData();
   const gran = calH.granularity;
   const scopeSet = new Set(periodsInScope());
-  const scopedAll = RAW_HORAS.filter(r => scopeSet.has(ventaPeriodKeyFor(r.fecha, gran)));
+  const scopedAll = horasBaseDias().filter(r => scopeSet.has(ventaPeriodKeyFor(r.fecha, gran)));
   const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sedeName === sedeFilter) : scopedAll;
   const empSel = el('filterEmpleadoHoras');
   const prevEmp = empSel.value;
@@ -419,7 +442,7 @@ function viewHoras(){
   }).join('') || '<tr><td colspan="5" class="left">Nadie en alerta en ' + (lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos') + '.</td></tr>';
 
   // "Acumulado por sede" (cada punto) — a pedido explícito del usuario.
-  const calSedes = aggregateHorasBySede(RAW_HORAS, gran);
+  const calSedes = aggregateHorasBySede(horasBaseDias(), gran);
   const sedesAcc = Array.from(calSedes.bySede.entries())
     .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
     .map(([sedeName, points]) => [sedeName, points.filter(p => scopeSet.has(p.periodKey)).reduce((a, p) => a + p.horaExtra, 0)])

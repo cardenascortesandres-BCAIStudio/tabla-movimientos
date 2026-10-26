@@ -108,6 +108,9 @@ ${VIEWER_CSS}
     <select id="filterSede"></select>
     <select id="filterBloque"></select>
     <select id="filterEmpleadoHoras"></select>
+    <label class="hidden-block" style="display:flex;align-items:center;gap:6px;font-size:13px;">Desde <input type="date" id="horasFechaDesde"></label>
+    <label class="hidden-block" style="display:flex;align-items:center;gap:6px;font-size:13px;">Hasta <input type="date" id="horasFechaHasta"></label>
+    <button type="button" class="theme-btn hidden-block" id="horasFechaLimpiarBtn">✕ Quitar fechas exactas</button>
     <div class="periodo-picker">
       <button type="button" class="theme-btn" id="periodoBtn">📅 Fechas</button>
       <div class="periodo-popover hidden-block" id="periodoPopover">
@@ -253,6 +256,7 @@ h1{font-size:20px;margin:0 0 4px;}
 .view-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
 .filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
 .filters select{background:var(--panel-bg);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:13px;}
+.filters input[type=date]{background:var(--panel-bg);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:7px 9px;font-size:13px;}
 .view-panel{background:var(--panel-bg);border:1px solid var(--border);border-radius:12px;padding:16px;}
 .chart-box{position:relative;height:400px;}
 .chart-dl-btn{position:absolute;top:8px;right:10px;z-index:5;width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--panel-bg);color:var(--muted);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.55;}
@@ -488,15 +492,17 @@ function aggregateHorasBySede(rawHoras, granularity){
     if (!periods.has(periodKey)) periods.set(periodKey, { periodKey, sedeName, horaExtra: 0 });
     periods.get(periodKey).horaExtra += horaExtraDelDia(row);
   });
+  const bySede = new Map();
   const byPeriod = new Map();
-  accBySede.forEach(periods => {
-    Array.from(periods.values()).forEach(acc => {
-      const p = { ...acc, periodLabel: ventaPeriodLabel(acc.periodKey, granularity) };
+  accBySede.forEach((periods, sedeName) => {
+    const points = Array.from(periods.values()).map(acc => ({ ...acc, periodLabel: ventaPeriodLabel(acc.periodKey, granularity) }));
+    bySede.set(sedeName, points);
+    points.forEach(p => {
       if (!byPeriod.has(p.periodKey)) byPeriod.set(p.periodKey, []);
       byPeriod.get(p.periodKey).push(p);
     });
   });
-  return { byPeriod, periodKeysSorted: Array.from(byPeriod.keys()).sort() };
+  return { bySede, byPeriod, periodKeysSorted: Array.from(byPeriod.keys()).sort() };
 }
 // Última semana ISO ya COMPLETA dentro de los datos cargados — el periodo de
 // un reporte de RH casi nunca cierra en domingo, así que la última semana
@@ -631,10 +637,22 @@ let selectedPeriods = null; // Set<periodKey> | null (null = todos) — Balance/
 let selectedPeriodsMermas = null;
 // Horas Extras: calendario propio (horas_extra_dias, día a día) — con un solo mes/año cargado baja a semanas.
 let selectedPeriodsHoras = null;
+// Calendario EXACTO (Desde/Hasta) — además de los chips de semana/mes/año,
+// deja acotar a un rango de días puntual. Se aplica ANTES de agregar por
+// granularidad (ver horasBaseDias), igual que en el dashboard en pantalla.
+let horasFechaDesde = null, horasFechaHasta = null;
+function horasBaseDias(){
+  if (!horasFechaDesde && !horasFechaHasta) return RAW_HORAS;
+  return RAW_HORAS.filter(r => {
+    const f = String(r.fecha).slice(0, 10);
+    return (!horasFechaDesde || f >= horasFechaDesde) && (!horasFechaHasta || f <= horasFechaHasta);
+  });
+}
 function horasPeriodData(){
   let g = el('filterGranularidad').value;
-  let d = aggregateHorasBySede(RAW_HORAS, g);
-  if (d.periodKeysSorted.length < 2 && g !== 'week') { g = 'week'; d = aggregateHorasBySede(RAW_HORAS, g); }
+  const base = horasBaseDias();
+  let d = aggregateHorasBySede(base, g);
+  if (d.periodKeysSorted.length < 2 && g !== 'week') { g = 'week'; d = aggregateHorasBySede(base, g); }
   return { granularity: g, periodKeysSorted: d.periodKeysSorted, byPeriod: Array.from(d.byPeriod.entries()).map(([periodKey, points]) => ({ periodKey, points })) };
 }
 function periodSourceData(){ return activeView === 'mermas' ? currentMovData : activeView === 'horas' ? horasPeriodData() : activeSource(); }
@@ -645,6 +663,9 @@ function activePeriodsSet(v){ if (activeView === 'mermas') selectedPeriodsMermas
 function updateFilterVisibility(){
   el('filterMetrica').classList.toggle('hidden-block', activeView === 'presupuesto' || activeView === 'mermas' || activeView === 'horas');
   el('filterEmpleadoHoras').classList.toggle('hidden-block', activeView === 'presupuesto' || activeView === 'mermas');
+  el('horasFechaDesde').closest('label').classList.toggle('hidden-block', activeView !== 'horas');
+  el('horasFechaHasta').closest('label').classList.toggle('hidden-block', activeView !== 'horas');
+  el('horasFechaLimpiarBtn').classList.toggle('hidden-block', activeView !== 'horas');
 }
 
 function recomputeData(){
@@ -709,6 +730,14 @@ function initFilters(){
   sedeSel.addEventListener('change', () => { renderKpis(); refreshActiveView(); });
   el('filterBloque').addEventListener('change', refreshActiveView);
   el('filterEmpleadoHoras').addEventListener('change', refreshActiveView);
+  el('horasFechaDesde').addEventListener('change', () => { horasFechaDesde = el('horasFechaDesde').value || null; selectedPeriodsHoras = null; renderPeriodPopover(); refreshActiveView(); });
+  el('horasFechaHasta').addEventListener('change', () => { horasFechaHasta = el('horasFechaHasta').value || null; selectedPeriodsHoras = null; renderPeriodPopover(); refreshActiveView(); });
+  el('horasFechaLimpiarBtn').addEventListener('click', () => {
+    horasFechaDesde = null; horasFechaHasta = null;
+    el('horasFechaDesde').value = ''; el('horasFechaHasta').value = '';
+    selectedPeriodsHoras = null;
+    renderPeriodPopover(); refreshActiveView();
+  });
   el('filterGranularidad').addEventListener('change', () => {
     recomputeData();
     refreshSedeOptions();
@@ -1178,7 +1207,7 @@ function viewHoras(){
   const calH = horasPeriodData();
   const gran = calH.granularity;
   const scopeSet = new Set(periodsInScope());
-  const scopedAll = RAW_HORAS.filter(r => scopeSet.has(ventaPeriodKeyFor(r.fecha, gran)));
+  const scopedAll = horasBaseDias().filter(r => scopeSet.has(ventaPeriodKeyFor(r.fecha, gran)));
   const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sedeName === sedeFilter) : scopedAll;
   const empSel = el('filterEmpleadoHoras');
   const prevEmp = empSel.value;
@@ -1213,7 +1242,7 @@ function viewHoras(){
   }).join('') || '<tr><td colspan="5" class="left">Nadie en alerta en ' + (lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos') + '.</td></tr>';
 
   // "Acumulado por sede" (cada punto) — a pedido explícito del usuario.
-  const calSedes = aggregateHorasBySede(RAW_HORAS, gran);
+  const calSedes = aggregateHorasBySede(horasBaseDias(), gran);
   const sedesAcc = Array.from(calSedes.bySede.entries())
     .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
     .map(([sedeName, points]) => [sedeName, points.filter(p => scopeSet.has(p.periodKey)).reduce((a, p) => a + p.horaExtra, 0)])
