@@ -43,12 +43,20 @@ const MINIMARKET_SECTION_LABELS = new Set([
   'SERVICIOS - OTROS SERVICIOS'
 ]);
 
+// Excepciones puntuales: productos que SÍ deben incluirse aunque su sección
+// del archivo original sea de minimarket (ej. "PRODUCTOS DE PANADERIA") — a
+// pedido explícito del usuario. Se revisa ANTES que la sección/código de
+// exclusión, así gana siempre sobre esas dos reglas. Ver src/core/catalog.js
+// (MASTER_CATALOG, categoría "CORTES ADICIONALES") para dónde cae en el informe.
+const FORCE_INCLUDED_CODES = new Set(['4911']); // PAN SUPER PERRO BIMBO 405G X 6 UNID
+
 // Productos de minimarket ya vistos antes (ver src/data/movimientosExclusionList.js)
 // — queda como respaldo para cuando la sección no está disponible o no se
 // reconoce (sin esto, estos productos no entraban en ningún bloque del
 // catálogo maestro y terminaban cayendo en "PRODUCTOS ADICIONALES (fuera
 // del listado maestro)", ver src/core/catalog.js).
 function isExcludedProduct(nameNorm, codeNorm, sectionNorm) {
+  if (FORCE_INCLUDED_CODES.has(codeNorm)) return false;
   if (sectionNorm) {
     if (CARNICO_SECTION_LABELS.has(sectionNorm)) return false;
     if (MINIMARKET_SECTION_LABELS.has(sectionNorm)) return true;

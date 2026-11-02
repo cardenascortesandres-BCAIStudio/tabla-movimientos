@@ -11,7 +11,8 @@ import { normText } from './normalize.js';
 
 export const BLOQUES_CANONICOS = [
   'Finas', 'Pulpas', 'Segundas', 'Molida', 'Costilla de Res', 'Vísceras',
-  'Pulpa de Cerdo', 'Tocineta y Costilla', 'Otros Cortes', 'Pollo', 'Pescado', 'Salsamentaria'
+  'Pulpa de Cerdo', 'Tocineta y Costilla', 'Otros Cortes', 'Pollo', 'Pescado', 'Salsamentaria',
+  'Cortes Adicionales'
 ];
 
 const BLOQUE_ALIASES = {
@@ -26,7 +27,12 @@ const BLOQUE_ALIASES = {
   'otros cortes': 'Otros Cortes',
   pollo: 'Pollo',
   pescado: 'Pescado',
-  salsamentaria: 'Salsamentaria'
+  salsamentaria: 'Salsamentaria',
+  // Agregado a pedido explícito del usuario: "cortes adicionales" vive como
+  // su propia categoría en MASTER_CATALOG (ver src/data/masterCatalog.js),
+  // no es un corte real de cárnico — es donde cayó PAN SUPER PERRO BIMBO
+  // (código 4911) para que siga apareciendo en las tablas descargadas.
+  'cortes adicionales': 'Cortes Adicionales'
 };
 
 // Nombre de categoría "sin clasificar": producto con código faltante en el

@@ -409,7 +409,7 @@ function aggregateVentasByPeriod(rawVentas, granularity){
 // byCategory (guardado ya canónico: Finas/Pulpas/Segundas/...) como
 // byBloque, para poder comparar UN bloque específico en el tiempo/entre
 // sedes — puerto de src/movimientos/movimientosDashboardData.js.
-const BLOQUES_CANONICOS = ['Finas', 'Pulpas', 'Segundas', 'Molida', 'Costilla de Res', 'Vísceras', 'Pulpa de Cerdo', 'Tocineta y Costilla', 'Otros Cortes', 'Pollo', 'Pescado', 'Salsamentaria'];
+const BLOQUES_CANONICOS = ['Finas', 'Pulpas', 'Segundas', 'Molida', 'Costilla de Res', 'Vísceras', 'Pulpa de Cerdo', 'Tocineta y Costilla', 'Otros Cortes', 'Pollo', 'Pescado', 'Salsamentaria', 'Cortes Adicionales'];
 function aggregateMovByPeriod(rawMovWeeks, granularity){
   const accBySede = new Map();
   rawMovWeeks.forEach(w => {

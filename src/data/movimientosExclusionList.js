@@ -514,7 +514,6 @@ export const MOVIMIENTOS_EXCLUSION_LIST = [
   { code: "4900", name: "MIGA DE PAN BIMBO 250G" },
   { code: "4907", name: "TOSTADA MANTEQ 150G BIMBO" },
   { code: "4910", name: "PAN HAMBURGUESA 350G X 4 UND BIMBO" },
-  { code: "4911", name: "PAN SUPER PERRO BIMBO 405G X 6 UNID" },
   { code: "4914", name: "PAN ARTESANAL BIMBO TAJADO 500G" },
   { code: "4924", name: "CASERO VAINILLA BIMBO *220G" },
   { code: "4926", name: "MR BROWN CHOCOLATE 65G" },

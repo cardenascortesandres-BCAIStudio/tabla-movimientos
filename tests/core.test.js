@@ -212,6 +212,32 @@ describe('parseDataRows', () => {
     // hacia adelante).
     expect(products.map(p => p.rawCode).sort()).toEqual(['1101', '9003', '9004']);
   });
+
+  // A pedido explícito del usuario (2026-11-02): el pan "PAN SUPER PERRO
+  // BIMBO 405G X 6 UNID" (código 4911) debe aparecer en las tablas
+  // descargadas bajo "Cortes Adicionales", aunque su sección real del
+  // archivo sea de minimarket ("PRODUCTOS DE PANADERIA") — es una excepción
+  // puntual por código (FORCE_INCLUDED_CODES en parse.js), no un cambio de
+  // regla general: un pan cualquiera SIN ese código sigue descartándose.
+  it('incluye el código 4911 (PAN SUPER PERRO BIMBO) aunque su sección sea minimarket', () => {
+    const rows = [
+      ['', '', '', '', 'COMPRAS', 'VENTAS', 'INVENTARIO INICIAL', 'INVENTARIO FINAL'],
+      ['', '4911', 'PAN SUPER PERRO BIMBO 405G X 6 UNID', 10, 5, 0, 5],
+      ['PRODUCTOS DE PANADERIA', '4914', 'PAN ARTESANAL BIMBO TAJADO 500G', 4, 2, 0, 2],
+    ];
+    const hInfo = detectHeaderRow(rows, 10);
+    const mCols = classifyMovementCols(rows, hInfo);
+    const { products, skippedExcluded } = parseDataRows(rows, hInfo, mCols);
+    expect(products.map(p => p.rawCode)).toEqual(['4911']);
+    expect(skippedExcluded).toBe(1);
+  });
+
+  it('agrupa el código 4911 bajo la categoría "CORTES ADICIONALES" del catálogo maestro', () => {
+    const products = [{ rawCode: '4911', normCode: '4911', rawName: 'PAN SUPER PERRO BIMBO 405G X 6 UNID', values: {} }];
+    const categories = buildReport(products, catalogInfo, MASTER_CATALOG);
+    const cat = categories.find(c => c.items.some(i => i.code === '4911'));
+    expect(cat.category).toBe('CORTES ADICIONALES');
+  });
 });
 
 describe('parseDataRows — excluye insumos/empaques/aseo por palabra clave', () => {
