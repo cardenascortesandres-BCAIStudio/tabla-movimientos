@@ -853,6 +853,29 @@ let reportesHorasSelectedPeriods = null;
 // año (ver renderReportesHorasView) — los chips de "📅 Fechas" siguen
 // funcionando dentro de ese rango.
 let horasFechaDesde = null, horasFechaHasta = null;
+// Mismo selector de fechas exactas, pero COMPARTIDO entre Serie de tiempo,
+// Comparativa entre sedes, Presupuesto y Mermas (a pedido explícito del
+// usuario: "que funcionen todos los filtros para todos los reportes") — un
+// solo rango de fechas que acota balance_weeks/ventas_dias/movimientos_weeks
+// ANTES de agregar por semana/mes/año. Horas Extras queda aparte (tiene el
+// suyo propio arriba) porque vive en su propia sub-pestaña con su propio
+// filtro de fechas, no se mezclan.
+let reportesFechaDesde = null, reportesFechaHasta = null;
+// true si la semana [week_start, week_end] de una fila se TRASLAPA con el
+// rango [desde, hasta] elegido (no exige que caiga completa adentro — una
+// semana que arranca antes del rango pero sigue dentro cuenta igual).
+function weekInRange(w, desde, hasta) {
+  if (!desde && !hasta) return true;
+  const ws = String(w.week_start).slice(0, 10), we = String(w.week_end).slice(0, 10);
+  if (desde && we < desde) return false;
+  if (hasta && ws > hasta) return false;
+  return true;
+}
+function diaInRange(fecha, desde, hasta) {
+  if (!desde && !hasta) return true;
+  const f = String(fecha).slice(0, 10);
+  return (!desde || f >= desde) && (!hasta || f <= hasta);
+}
 // Sub-vista activa del dashboard unificado: 'tiempo' | 'sedes' | 'ranking' | 'presupuesto'.
 // "presupuesto" ignora el selector de métrica/granularidad (siempre es venta
 // real del mes en curso contra la meta) — las otras 3 sí dependen de ellos.
@@ -927,12 +950,21 @@ function renderReportes() {
   if (!reportesWeeks) return;
   const granularity = el('reportesGranularity').value;
   const metric = el('reportesMetrica').value;
-  const data = aggregateByPeriod(reportesWeeks, granularity);
+
+  // Fechas exactas (Desde/Hasta) — acota ANTES de agregar por periodo, igual
+  // que Horas Extras (ver weekInRange/diaInRange). Afecta Balance/Ventas acá
+  // y Mermas en renderReportesMermasView — Horas Extras tiene su propio par
+  // de fechas, no se toca desde acá.
+  const baseWeeks = (reportesFechaDesde || reportesFechaHasta) ? reportesWeeks.filter(w => weekInRange(w, reportesFechaDesde, reportesFechaHasta)) : reportesWeeks;
+  const baseVentaDias = (reportesFechaDesde || reportesFechaHasta) ? (ventasAllDias || []).filter(d => diaInRange(d.fecha, reportesFechaDesde, reportesFechaHasta)) : (ventasAllDias || []);
+  const baseMovWeeks = (reportesFechaDesde || reportesFechaHasta) ? (movHistWeeks || []).filter(w => weekInRange(w, reportesFechaDesde, reportesFechaHasta)) : (movHistWeeks || []);
+
+  const data = aggregateByPeriod(baseWeeks, granularity);
   window.__reportesData = data;
 
   const sedeSel = el('reportesSedeFilter');
   const prevSede = sedeSel.value;
-  const allSedeNames = Array.from(new Set([...data.sedeNames, ...((ventasAllDias || []).map(d => d.sede_name)), ...((movHistWeeks || []).map(w => w.sede_name))])).sort();
+  const allSedeNames = Array.from(new Set([...data.sedeNames, ...(baseVentaDias.map(d => d.sede_name)), ...(baseMovWeeks.map(w => w.sede_name))])).sort();
   sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + allSedeNames.map(s => `<option>${escapeHtml(s)}</option>`).join('');
   if (allSedeNames.includes(prevSede)) sedeSel.value = prevSede;
   const sedeFilter = sedeSel.value;
@@ -941,7 +973,7 @@ function renderReportes() {
   // usa su PROPIO calendario (llega al día, a diferencia de Balance que solo
   // tiene semanas ya cerradas) — por eso el listado de periodos a comparar
   // sale de ventaData cuando metric==='venta', y de data en cualquier otro caso.
-  const ventaRows = sedeFilter ? (ventasAllDias || []).filter(d => d.sede_name === sedeFilter) : (ventasAllDias || []);
+  const ventaRows = sedeFilter ? baseVentaDias.filter(d => d.sede_name === sedeFilter) : baseVentaDias;
   const ventaData = aggregateVentByPeriod(ventaRows, granularity);
 
   const allPeriodKeys = metric === 'venta' ? ventaData.periodKeysSorted : data.periodKeysSorted;
@@ -979,14 +1011,14 @@ function renderReportes() {
   if (metric === 'venta') {
     el('reportesKpiGrid').innerHTML = `
       <div class="kpi-card"><div class="kpi-label">Sedes con historial</div><div class="kpi-value">${allSedeNames.length}</div></div>
-      <div class="kpi-card"><div class="kpi-label">Días de venta guardados</div><div class="kpi-value">${(ventasAllDias || []).length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Días de venta guardados</div><div class="kpi-value">${baseVentaDias.length}</div></div>
       <div class="kpi-card kpi-pos"><div class="kpi-label">Ventas — último ${GRAN_LABEL[granularity]}</div><div class="kpi-value">${fmtCOP(ventaLastValue)}</div></div>
       <div class="kpi-card ${ventaCrecimiento == null ? '' : (ventaCrecimiento < 0 ? 'kpi-neg' : 'kpi-pos')}"><div class="kpi-label">Crecimiento vs. anterior</div><div class="kpi-value">${ventaCrecimiento == null ? 'n/d' : fmtPct(ventaCrecimiento)}</div></div>
       <div class="kpi-card ${lastMargen < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Margen (Balance) — mismo periodo</div><div class="kpi-value">${fmtPct(lastMargen)}</div></div>`;
   } else {
     el('reportesKpiGrid').innerHTML = `
       <div class="kpi-card"><div class="kpi-label">Sedes con historial</div><div class="kpi-value">${allSedeNames.length}</div></div>
-      <div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">${reportesWeeks.length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">${baseWeeks.length}</div></div>
       <div class="kpi-card ${lastMargen < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Margen — último ${GRAN_LABEL[granularity]}</div><div class="kpi-value">${fmtPct(lastMargen)}</div></div>
       <div class="kpi-card ${lastUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad — último ${GRAN_LABEL[granularity]}</div><div class="kpi-value">${fmtCOP(lastUtilidad)}</div></div>
       <div class="kpi-card ${scopeUtilidad < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Utilidad acumulada (periodos seleccionados)</div><div class="kpi-value">${fmtCOP(scopeUtilidad)}</div></div>`;
@@ -1041,6 +1073,9 @@ function switchReportesSubView(view) {
   el('reportesHorasView').classList.toggle('hidden-block', view !== 'horas');
   // El selector Margen/Utilidad/Ventas solo aplica a Serie de tiempo y Comparativa entre sedes.
   el('reportesMetrica').classList.toggle('hidden-block', view === 'presupuesto' || view === 'mermas' || view === 'horas');
+  // Fechas exactas compartidas (Balance/Ventas/Presupuesto/Mermas) — Horas
+  // Extras tiene su propio par de fechas dentro de su subvista, no se mezclan.
+  ['reportesFechaDesdeLabel', 'reportesFechaHastaLabel', 'reportesFechaLimpiarBtn'].forEach(id => el(id).classList.toggle('hidden-block', view === 'horas'));
   if (reportesWeeks) renderReportes();
 }
 
@@ -1209,6 +1244,16 @@ function renderReportesSedesChart(metric, data, ventaData, sedeFilter, periodKey
 // contra la meta que dio la empresa (ver computeProjection en
 // src/ventas/ventasDashboardData.js), respetando solo el filtro de sede.
 function renderReportesPresupuestoView(sedeFilter) {
+  // La "Proyección de cierre" solo tiene sentido para el MES EN CURSO (no se
+  // puede proyectar un mes ya cerrado) — si hay un rango de fechas exactas
+  // elegido, se esconde esta sección y el histórico de abajo (que sí
+  // respeta el rango) pasa a ser la respuesta. A pedido explícito del
+  // usuario: antes el selector de fechas no afectaba Presupuesto en nada.
+  const fechaFiltroActivo = Boolean(reportesFechaDesde || reportesFechaHasta);
+  el('presupuestoMesActualSection').classList.toggle('hidden-block', fechaFiltroActivo);
+  el('presupuestoFechaHint').classList.toggle('hidden-block', !fechaFiltroActivo);
+  if (fechaFiltroActivo) { renderPresupuestoHistorico(sedeFilter); return; }
+
   const { anio, mes } = currentAnioMes();
   const mesPrefix = `${anio}-${String(mes).padStart(2, '0')}`;
   const diasDelMes = (ventasAllDias || []).filter(d => String(d.fecha).slice(0, 7) === mesPrefix);
@@ -1274,42 +1319,73 @@ function renderPresupuestoHistorico(sedeFilter) {
   const { anio: curAnio, mes: curMes } = currentAnioMes();
   const curKey = `${curAnio}-${String(curMes).padStart(2, '0')}`;
 
+  // Por SEDE, no combinado — a pedido explícito del usuario ("el
+  // cumplimiento... de cada punto, no en general"): antes, con "Todas las
+  // sedes" elegido, se sumaban todas las sedes en un solo número por mes.
   const ventaRows = sedeFilter ? (ventasAllDias || []).filter(d => d.sede_name === sedeFilter) : (ventasAllDias || []);
-  const ventaData = aggregateVentByPeriod(ventaRows, 'month');
-  const ventaByMonth = new Map();
-  ventaData.periodKeysSorted.forEach(k => {
-    const pts = ventaData.byPeriod.get(k) || [];
-    ventaByMonth.set(k, pts.reduce((a, p) => a + p.valorVenta, 0));
+  const presRows = sedeFilter ? (ventasPresupuestos || []).filter(p => p.sede_name === sedeFilter) : (ventasPresupuestos || []);
+  const sedesEnAlcance = (sedeFilter ? [sedeFilter] : Array.from(new Set([...ventaRows.map(d => d.sede_name), ...presRows.map(p => p.sede_name)]))).sort();
+
+  const ventaByKey = new Map(); // "sede|YYYY-MM" -> venta real
+  ventaRows.forEach(d => {
+    const mes = String(d.fecha).slice(0, 7);
+    const key = d.sede_name + '|' + mes;
+    ventaByKey.set(key, (ventaByKey.get(key) || 0) + (Number(d.valor_venta) || 0));
+  });
+  const presByKey = new Map(); // "sede|YYYY-MM" -> presupuesto
+  presRows.forEach(p => {
+    const mes = `${p.anio}-${String(p.mes).padStart(2, '0')}`;
+    const key = p.sede_name + '|' + mes;
+    presByKey.set(key, (presByKey.get(key) || 0) + (Number(p.monto) || 0));
   });
 
-  const presByMonth = new Map();
-  (ventasPresupuestos || []).forEach(p => {
-    if (sedeFilter && p.sede_name !== sedeFilter) return;
-    const key = `${p.anio}-${String(p.mes).padStart(2, '0')}`;
-    presByMonth.set(key, (presByMonth.get(key) || 0) + (Number(p.monto) || 0));
-  });
+  // Meses con meta cargada, excluyendo el mes en curso (todavía no cierra) —
+  // y, si hay un rango de fechas exacto elegido, acotado a ese rango además.
+  const mesRange = (reportesFechaDesde || reportesFechaHasta)
+    ? { start: reportesFechaDesde ? reportesFechaDesde.slice(0, 7) : '0000-01', end: reportesFechaHasta ? reportesFechaHasta.slice(0, 7) : '9999-12' }
+    : null;
+  const allMonthKeys = Array.from(new Set(Array.from(presByKey.keys()).map(k => k.split('|')[1])))
+    .filter(k => k < curKey && (!mesRange || (k >= mesRange.start && k <= mesRange.end)))
+    .sort();
 
-  const monthKeys = Array.from(presByMonth.keys()).filter(k => k < curKey).sort();
-  const rows = monthKeys.map(k => {
-    const ventaReal = ventaByMonth.get(k) || 0;
-    const presupuesto = presByMonth.get(k) || 0;
-    const pct = presupuesto > 0 ? ventaReal / presupuesto : null;
-    return { periodKey: k, periodLabel: ventaMonthLabel(k, 'month'), ventaReal, presupuesto, pct, cumple: pct != null && pct >= 1 };
+  const rows = [];
+  allMonthKeys.forEach(mes => {
+    sedesEnAlcance.forEach(sedeName => {
+      const key = sedeName + '|' + mes;
+      const presupuesto = presByKey.get(key) || 0;
+      if (presupuesto <= 0) return; // sin meta cargada esa sede ese mes — nada que evaluar
+      const ventaReal = ventaByKey.get(key) || 0;
+      const pct = ventaReal / presupuesto;
+      rows.push({ sedeName, periodKey: mes, periodLabel: ventaMonthLabel(mes, 'month'), ventaReal, presupuesto, pct, cumple: pct >= 1 });
+    });
   });
+  rows.sort((a, b) => (a.periodKey === b.periodKey ? a.sedeName.localeCompare(b.sedeName) : (a.periodKey < b.periodKey ? -1 : 1)));
 
   el('presupuestoHistoricoTableBody').innerHTML = rows.length ? rows.slice().reverse().map(r => {
-    const cls = r.pct == null ? '' : (r.cumple ? 'diff-zero' : 'diff-neg');
-    return `<tr><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmtCOP(r.ventaReal)}</td><td>${r.presupuesto > 0 ? fmtCOP(r.presupuesto) : '—'}</td><td class="${cls}">${r.pct == null ? '—' : fmtPct(r.pct)}</td><td>${r.pct == null ? '—' : (r.cumple ? '✓ Cumplió' : '✗ No cumplió')}</td></tr>`;
-  }).join('') : '<tr><td colspan="5" class="left hint">Todavía no hay un mes cerrado con presupuesto cargado.</td></tr>';
+    const cls = r.cumple ? 'diff-zero' : 'diff-neg';
+    return `<tr><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.periodLabel)}</td><td>${fmtCOP(r.ventaReal)}</td><td>${fmtCOP(r.presupuesto)}</td><td class="${cls}">${fmtPct(r.pct)}</td><td>${r.cumple ? '✓ Cumplió' : '✗ No cumplió'}</td></tr>`;
+  }).join('') : '<tr><td colspan="6" class="left hint">Todavía no hay un mes cerrado con presupuesto cargado' + (mesRange ? ' en el rango de fechas elegido' : '') + '.</td></tr>';
 
+  // Gráfico: una serie por sede (barras agrupadas por mes) si hay más de una
+  // sede en el alcance; si hay solo una (o está filtrado a una), una sola serie.
   if (chartPresupuestoHistorico) chartPresupuestoHistorico.destroy();
-  const labels = rows.map(r => r.periodLabel);
-  const pctValues = rows.map(r => (r.pct == null ? 0 : r.pct * 100));
-  const colors = rows.map(r => r.pct == null ? dashVar('--dv-text-muted', 'reportesView') : (r.cumple ? dashVar('--dv-pos', 'reportesView') : dashVar('--dv-neg', 'reportesView')));
+  const labels = allMonthKeys.map(k => ventaMonthLabel(k, 'month'));
+  const rowsByKey = new Map(rows.map(r => [r.sedeName + '|' + r.periodKey, r]));
+  const datasets = sedesEnAlcance.map((sedeName, i) => ({
+    label: sedeName,
+    data: allMonthKeys.map(mes => {
+      const r = rowsByKey.get(sedeName + '|' + mes);
+      return r ? Math.round(r.pct * 1000) / 10 : null;
+    }),
+    backgroundColor: SEDE_PALETTE[i % SEDE_PALETTE.length],
+    borderRadius: 6
+  }));
+  const histOpts = dashboardChartOptions(['% de cumplimiento del presupuesto por mes' + (sedeFilter ? ' — ' + sedeFilter : ' — por sede'), 'Meta = 100%'], 'reportesView', v => fmtPct(v / 100));
+  histOpts.plugins.legend.display = sedesEnAlcance.length > 1;
   chartPresupuestoHistorico = new Chart(el('chartPresupuestoHistorico').getContext('2d'), {
     type: 'bar',
-    data: { labels, datasets: [{ label: '% Cumplimiento', data: pctValues, backgroundColor: colors, borderRadius: 6 }] },
-    options: dashboardChartOptions(['% de cumplimiento del presupuesto por mes' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Meta = 100%'], 'reportesView', v => fmtPct(v / 100))
+    data: { labels, datasets },
+    options: histOpts
   });
 
   const byYear = new Map();
@@ -1574,7 +1650,8 @@ let mermasCurrentData = null, mermasCurrentSedeFilter = '', mermasCurrentLastPer
 
 function renderReportesMermasView(sedeFilter, granularity) {
   if (!movHistWeeks || !movHistWeeks.length) return;
-  const data = aggregateMovByPeriod(movHistWeeks, granularity);
+  const baseMovWeeks = (reportesFechaDesde || reportesFechaHasta) ? movHistWeeks.filter(w => weekInRange(w, reportesFechaDesde, reportesFechaHasta)) : movHistWeeks;
+  const data = aggregateMovByPeriod(baseMovWeeks, granularity);
 
   const bloqueSel = el('reportesMermasBloque');
   if (bloqueSel.options.length <= 1) {
@@ -1598,7 +1675,7 @@ function renderReportesMermasView(sedeFilter, granularity) {
   const bloqueLabel = movBloqueFilter ? ' — ' + movBloqueFilter : '';
   el('reportesMermasKpiGrid').innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Sedes con historial</div><div class="kpi-value">${data.sedeNames.length}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">${movHistWeeks.length}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">${baseMovWeeks.length}</div></div>
     <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">Diferencia KL — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmt(lastDiferencia)}</div></div>
     <div class="kpi-card ${lastDiferencia < 0 ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">% Diferencia — último ${GRAN_LABEL[granularity]}${bloqueLabel}</div><div class="kpi-value">${fmtPct(lastPct)}</div></div>`;
 
@@ -3180,6 +3257,22 @@ el('backFromReportesBtn').addEventListener('click', () => switchFlow('choice'));
 el('reportesMetrica').addEventListener('change', () => { reportesSelectedPeriods = null; renderReportes(); });
 el('reportesGranularity').addEventListener('change', () => { reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; reportesHorasSelectedPeriods = null; renderReportes(); });
 el('reportesSedeFilter').addEventListener('change', renderReportes);
+el('reportesFechaDesde').addEventListener('change', () => {
+  reportesFechaDesde = el('reportesFechaDesde').value || null;
+  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null;
+  renderReportes();
+});
+el('reportesFechaHasta').addEventListener('change', () => {
+  reportesFechaHasta = el('reportesFechaHasta').value || null;
+  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null;
+  renderReportes();
+});
+el('reportesFechaLimpiarBtn').addEventListener('click', () => {
+  reportesFechaDesde = null; reportesFechaHasta = null;
+  el('reportesFechaDesde').value = ''; el('reportesFechaHasta').value = '';
+  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null;
+  renderReportes();
+});
 el('reportesDownloadBtn').addEventListener('click', () => downloadReportesReport());
 el('horasDownloadBtn').addEventListener('click', () => downloadReportesReport('horas'));
 document.querySelectorAll('#reportesSubViewTabs .tab-btn').forEach(btn => {

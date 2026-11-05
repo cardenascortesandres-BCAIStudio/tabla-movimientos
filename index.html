@@ -371,6 +371,9 @@
               <div class="periodo-popover-list" id="reportesPeriodList"></div>
             </div>
           </div>
+          <label class="dash-filter-fecha" id="reportesFechaDesdeLabel">Desde <input type="date" id="reportesFechaDesde"></label>
+          <label class="dash-filter-fecha" id="reportesFechaHastaLabel">Hasta <input type="date" id="reportesFechaHasta"></label>
+          <button type="button" class="btn-tiny" id="reportesFechaLimpiarBtn">✕ Quitar fechas exactas</button>
         </div>
         <p class="hint" id="reportesPeriodHint"></p>
         <div class="kpi-grid" id="reportesKpiGrid"></div>
@@ -390,29 +393,32 @@
           <div class="chart-box" style="grid-column:1/-1"><canvas id="chartReportesUtilidad"></canvas></div>
         </div>
         <div class="hidden-block" id="reportesPresupuestoView">
-          <div class="kpi-grid" id="reportesPresupuestoKpiGrid"></div>
-          <div class="dash-charts">
-            <div class="chart-box" style="grid-column:1/-1"><canvas id="chartReportesPresupuesto"></canvas></div>
-          </div>
-          <div class="dash-table-wrap">
-            <div class="dash-table-title">Proyección de cierre del mes, por sede</div>
-            <div class="table-scroll">
-              <table class="dash-table">
-                <thead><tr><th class="left">Sede</th><th>Acumulado</th><th>Proyección de cierre</th><th>Presupuesto</th><th>% Proyectado</th></tr></thead>
-                <tbody id="reportesProyeccionTableBody"></tbody>
-              </table>
+          <div id="presupuestoMesActualSection">
+            <div class="kpi-grid" id="reportesPresupuestoKpiGrid"></div>
+            <div class="dash-charts">
+              <div class="chart-box" style="grid-column:1/-1"><canvas id="chartReportesPresupuesto"></canvas></div>
+            </div>
+            <div class="dash-table-wrap">
+              <div class="dash-table-title">Proyección de cierre del mes, por sede</div>
+              <div class="table-scroll">
+                <table class="dash-table">
+                  <thead><tr><th class="left">Sede</th><th>Acumulado</th><th>Proyección de cierre</th><th>Presupuesto</th><th>% Proyectado</th></tr></thead>
+                  <tbody id="reportesProyeccionTableBody"></tbody>
+                </table>
+              </div>
             </div>
           </div>
+          <p class="hint hidden-block" id="presupuestoFechaHint">📅 Mostrando el cumplimiento real de los meses del rango de fechas elegido (no aplica "proyección de cierre", solo tiene sentido para el mes en curso). Quita las fechas exactas para volver a ver la proyección del mes actual.</p>
 
           <div class="dash-table-title" style="margin-top:22px">Histórico de cumplimiento — meses ya cerrados</div>
-          <div class="dash-sub">Venta real del mes contra la meta que se cargó ese mes — así se ve de un vistazo cuáles meses cumplieron y cuáles no, para comparar en el tiempo.</div>
+          <div class="dash-sub">Venta real del mes contra la meta que se cargó ese mes, por sede — así se ve de un vistazo cuáles meses cumplieron y cuáles no, para comparar en el tiempo. Respeta el rango de fechas elegido arriba.</div>
           <div class="dash-charts">
             <div class="chart-box" style="grid-column:1/-1"><canvas id="chartPresupuestoHistorico"></canvas></div>
           </div>
           <div class="dash-table-wrap">
             <div class="table-scroll">
               <table class="dash-table">
-                <thead><tr><th class="left">Mes</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
+                <thead><tr><th class="left">Sede</th><th class="left">Mes</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
                 <tbody id="presupuestoHistoricoTableBody"></tbody>
               </table>
             </div>

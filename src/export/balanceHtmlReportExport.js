@@ -108,6 +108,9 @@ ${VIEWER_CSS}
     <select id="filterSede"></select>
     <select id="filterBloque"></select>
     <select id="filterEmpleadoHoras"></select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;" id="reportesFechaDesdeLabel">Desde <input type="date" id="reportesFechaDesde"></label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;" id="reportesFechaHastaLabel">Hasta <input type="date" id="reportesFechaHasta"></label>
+    <button type="button" class="theme-btn" id="reportesFechaLimpiarBtn">✕ Quitar fechas exactas</button>
     <label class="hidden-block" style="display:flex;align-items:center;gap:6px;font-size:13px;">Desde <input type="date" id="horasFechaDesde"></label>
     <label class="hidden-block" style="display:flex;align-items:center;gap:6px;font-size:13px;">Hasta <input type="date" id="horasFechaHasta"></label>
     <button type="button" class="theme-btn hidden-block" id="horasFechaLimpiarBtn">✕ Quitar fechas exactas</button>
@@ -127,17 +130,20 @@ ${VIEWER_CSS}
   <section class="view-panel" id="view-tiempo"><div class="chart-box"><canvas id="chartTiempo"></canvas></div></section>
   <section class="view-panel hidden-block" id="view-sedes"><div class="chart-box"><canvas id="chartSedes"></canvas></div></section>
   <section class="view-panel hidden-block" id="view-presupuesto">
-    <div class="kpi-grid" id="presuKpiGrid" style="margin-bottom:16px"></div>
-    <div class="chart-box" style="margin-bottom:16px"><canvas id="chartPresupuesto"></canvas></div>
-    <table class="dtable" id="presuTable">
-      <thead><tr><th class="left">Sede</th><th>Acumulado</th><th>Proyección de cierre</th><th>Presupuesto</th><th>% Proyectado</th></tr></thead>
-      <tbody id="presuTableBody"></tbody>
-    </table>
+    <div id="presupuestoMesActualSection">
+      <div class="kpi-grid" id="presuKpiGrid" style="margin-bottom:16px"></div>
+      <div class="chart-box" style="margin-bottom:16px"><canvas id="chartPresupuesto"></canvas></div>
+      <table class="dtable" id="presuTable">
+        <thead><tr><th class="left">Sede</th><th>Acumulado</th><th>Proyección de cierre</th><th>Presupuesto</th><th>% Proyectado</th></tr></thead>
+        <tbody id="presuTableBody"></tbody>
+      </table>
+    </div>
+    <p class="hint hidden-block" id="presupuestoFechaHint">📅 Mostrando el cumplimiento real de los meses del rango de fechas elegido (no aplica "proyección de cierre", solo tiene sentido para el mes en curso). Quita las fechas exactas para volver a ver la proyección del mes actual.</p>
 
-    <p class="hint" style="margin-top:22px;font-weight:700;">Histórico de cumplimiento — meses ya cerrados</p>
+    <p class="hint" style="margin-top:22px;font-weight:700;">Histórico de cumplimiento — meses ya cerrados, por sede</p>
     <div class="chart-box" style="margin-bottom:16px"><canvas id="chartPresupuestoHistorico"></canvas></div>
     <table class="dtable" id="presuHistoricoTable">
-      <thead><tr><th class="left">Mes</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
+      <thead><tr><th class="left">Sede</th><th class="left">Mes</th><th>Venta real</th><th>Presupuesto</th><th>% Cumplimiento</th><th>Estado</th></tr></thead>
       <tbody id="presuHistoricoTableBody"></tbody>
     </table>
 
@@ -641,6 +647,27 @@ let selectedPeriodsHoras = null;
 // deja acotar a un rango de días puntual. Se aplica ANTES de agregar por
 // granularidad (ver horasBaseDias), igual que en el dashboard en pantalla.
 let horasFechaDesde = null, horasFechaHasta = null;
+// Mismo criterio, pero COMPARTIDO entre Serie de tiempo/Comparativa/
+// Presupuesto/Mermas — a pedido explícito del usuario ("que funcionen todos
+// los filtros para todos los reportes... que al descargar se vea
+// reflejado"): antes el selector de fechas del informe descargado no
+// filtraba nada fuera de Horas Extras.
+let reportesFechaDesde = null, reportesFechaHasta = null;
+function weekInRange(w, desde, hasta){
+  if (!desde && !hasta) return true;
+  const ws = String(w.weekStart).slice(0, 10), we = String(w.weekEnd).slice(0, 10);
+  if (desde && we < desde) return false;
+  if (hasta && ws > hasta) return false;
+  return true;
+}
+function diaInRange(fecha, desde, hasta){
+  if (!desde && !hasta) return true;
+  const f = String(fecha).slice(0, 10);
+  return (!desde || f >= desde) && (!hasta || f <= hasta);
+}
+function baseWeeks(){ return (reportesFechaDesde || reportesFechaHasta) ? RAW_WEEKS.filter(w => weekInRange(w, reportesFechaDesde, reportesFechaHasta)) : RAW_WEEKS; }
+function baseVentas(){ return (reportesFechaDesde || reportesFechaHasta) ? RAW_VENTAS.filter(d => diaInRange(d.fecha, reportesFechaDesde, reportesFechaHasta)) : RAW_VENTAS; }
+function baseMovWeeksData(){ return (reportesFechaDesde || reportesFechaHasta) ? RAW_MOV_WEEKS.filter(w => weekInRange(w, reportesFechaDesde, reportesFechaHasta)) : RAW_MOV_WEEKS; }
 function horasBaseDias(){
   if (!horasFechaDesde && !horasFechaHasta) return RAW_HORAS;
   return RAW_HORAS.filter(r => {
@@ -666,13 +693,16 @@ function updateFilterVisibility(){
   el('horasFechaDesde').closest('label').classList.toggle('hidden-block', activeView !== 'horas');
   el('horasFechaHasta').closest('label').classList.toggle('hidden-block', activeView !== 'horas');
   el('horasFechaLimpiarBtn').classList.toggle('hidden-block', activeView !== 'horas');
+  el('reportesFechaDesdeLabel').classList.toggle('hidden-block', activeView === 'horas');
+  el('reportesFechaHastaLabel').classList.toggle('hidden-block', activeView === 'horas');
+  el('reportesFechaLimpiarBtn').classList.toggle('hidden-block', activeView === 'horas');
 }
 
 function recomputeData(){
   const granularity = el('filterGranularidad').value;
-  currentData = aggregateByPeriod(RAW_WEEKS, granularity);
-  currentVentaData = aggregateVentasByPeriod(RAW_VENTAS, granularity);
-  currentMovData = aggregateMovByPeriod(RAW_MOV_WEEKS, granularity);
+  currentData = aggregateByPeriod(baseWeeks(), granularity);
+  currentVentaData = aggregateVentasByPeriod(baseVentas(), granularity);
+  currentMovData = aggregateMovByPeriod(baseMovWeeksData(), granularity);
   selectedPeriods = null;
   selectedPeriodsMermas = null;
   selectedPeriodsHoras = null;
@@ -737,6 +767,19 @@ function initFilters(){
     el('horasFechaDesde').value = ''; el('horasFechaHasta').value = '';
     selectedPeriodsHoras = null;
     renderPeriodPopover(); refreshActiveView();
+  });
+  el('reportesFechaDesde').addEventListener('change', () => {
+    reportesFechaDesde = el('reportesFechaDesde').value || null;
+    recomputeData(); refreshSedeOptions(); renderKpis(); refreshActiveView();
+  });
+  el('reportesFechaHasta').addEventListener('change', () => {
+    reportesFechaHasta = el('reportesFechaHasta').value || null;
+    recomputeData(); refreshSedeOptions(); renderKpis(); refreshActiveView();
+  });
+  el('reportesFechaLimpiarBtn').addEventListener('click', () => {
+    reportesFechaDesde = null; reportesFechaHasta = null;
+    el('reportesFechaDesde').value = ''; el('reportesFechaHasta').value = '';
+    recomputeData(); refreshSedeOptions(); renderKpis(); refreshActiveView();
   });
   el('filterGranularidad').addEventListener('change', () => {
     recomputeData();
@@ -917,10 +960,11 @@ function viewSedes(){
   charts.sedes = new Chart(ctx, { type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: labels.map(colorOf), borderRadius: 6 }] }, options: chartOptions(METRIC_LABELS[metric] + ' — ' + scopeLabel, null, metricFormatter(metric)) });
 }
 
-// "Presupuesto": a diferencia de la otra vista, ignora
-// métrica/granularidad/fechas — siempre es venta real del MES EN CURSO (al
-// momento de abrir este informe) contra la meta que dio la empresa, respeta
-// solo el filtro de sede.
+// "Presupuesto": ignora métrica/granularidad (siempre venta real por mes),
+// pero SÍ respeta fechas exactas (Desde/Hasta) y sede — si hay un rango
+// elegido, la sección "mes en curso" (que no puede proyectar un mes ya
+// cerrado) se esconde y el histórico de abajo pasa a ser la respuesta,
+// mismo criterio que renderReportesPresupuestoView en src/main.js.
 function currentAnioMes(){ const now = new Date(); return { anio: now.getFullYear(), mes: now.getMonth() + 1 }; }
 function computeProjection(diaRows, anio, mes){
   if (!diaRows.length) return null;
@@ -934,6 +978,11 @@ function computeProjection(diaRows, anio, mes){
 function viewPresupuesto(){
   destroyChart('presupuesto');
   const sedeFilter = el('filterSede').value;
+  const fechaFiltroActivo = Boolean(reportesFechaDesde || reportesFechaHasta);
+  el('presupuestoMesActualSection').classList.toggle('hidden-block', fechaFiltroActivo);
+  el('presupuestoFechaHint').classList.toggle('hidden-block', !fechaFiltroActivo);
+  if (fechaFiltroActivo) { const { anio, mes } = currentAnioMes(); renderPresupuestoHistorico(sedeFilter, anio, mes); return; }
+
   const { anio, mes } = currentAnioMes();
   const mesPrefix = anio + '-' + String(mes).padStart(2, '0');
   const diasDelMes = RAW_VENTAS.filter(d => String(d.fecha).slice(0, 7) === mesPrefix);
@@ -984,39 +1033,67 @@ function viewPresupuesto(){
 // (ver renderPresupuestoHistorico en src/main.js).
 function renderPresupuestoHistorico(sedeFilter, curAnio, curMes){
   const curKey = curAnio + '-' + String(curMes).padStart(2, '0');
+  // Por SEDE, no combinado — a pedido explícito del usuario ("el
+  // cumplimiento... de cada punto, no en general").
   const ventaRows = sedeFilter ? RAW_VENTAS.filter(d => d.sedeName === sedeFilter) : RAW_VENTAS;
-  const ventaData = aggregateVentasByPeriod(ventaRows, 'month');
-  const ventaByMonth = new Map();
-  ventaData.byPeriod.forEach(({ periodKey, points }) => { ventaByMonth.set(periodKey, points.reduce((a, p) => a + p.valorVenta, 0)); });
+  const presRows = sedeFilter ? RAW_PRESUPUESTOS.filter(p => p.sedeName === sedeFilter) : RAW_PRESUPUESTOS;
+  const sedesEnAlcance = (sedeFilter ? [sedeFilter] : Array.from(new Set([...ventaRows.map(d => d.sedeName), ...presRows.map(p => p.sedeName)]))).sort();
 
-  const presByMonth = new Map();
-  RAW_PRESUPUESTOS.forEach(p => {
-    if (sedeFilter && p.sedeName !== sedeFilter) return;
-    const key = p.anio + '-' + String(p.mes).padStart(2, '0');
-    presByMonth.set(key, (presByMonth.get(key) || 0) + (Number(p.monto) || 0));
+  const ventaByKey = new Map(); // "sede|YYYY-MM" -> venta real
+  ventaRows.forEach(d => {
+    const mes = String(d.fecha).slice(0, 7);
+    const key = d.sedeName + '|' + mes;
+    ventaByKey.set(key, (ventaByKey.get(key) || 0) + (Number(d.valorVenta) || 0));
+  });
+  const presByKey = new Map(); // "sede|YYYY-MM" -> presupuesto
+  presRows.forEach(p => {
+    const mes = p.anio + '-' + String(p.mes).padStart(2, '0');
+    const key = p.sedeName + '|' + mes;
+    presByKey.set(key, (presByKey.get(key) || 0) + (Number(p.monto) || 0));
   });
 
-  const monthKeys = Array.from(presByMonth.keys()).filter(k => k < curKey).sort();
-  const rows = monthKeys.map(k => {
-    const ventaReal = ventaByMonth.get(k) || 0;
-    const presupuesto = presByMonth.get(k) || 0;
-    const pct = presupuesto > 0 ? ventaReal / presupuesto : null;
-    return { periodKey: k, periodLabel: ventaPeriodLabel(k, 'month'), ventaReal, presupuesto, pct, cumple: pct != null && pct >= 1 };
+  // Meses con meta cargada, excluyendo el mes en curso, acotados al rango de
+  // fechas exacto elegido si hay uno.
+  const mesRange = (reportesFechaDesde || reportesFechaHasta)
+    ? { start: reportesFechaDesde ? reportesFechaDesde.slice(0, 7) : '0000-01', end: reportesFechaHasta ? reportesFechaHasta.slice(0, 7) : '9999-12' }
+    : null;
+  const allMonthKeys = Array.from(new Set(Array.from(presByKey.keys()).map(k => k.split('|')[1])))
+    .filter(k => k < curKey && (!mesRange || (k >= mesRange.start && k <= mesRange.end)))
+    .sort();
+
+  const rows = [];
+  allMonthKeys.forEach(mes => {
+    sedesEnAlcance.forEach(sedeName => {
+      const key = sedeName + '|' + mes;
+      const presupuesto = presByKey.get(key) || 0;
+      if (presupuesto <= 0) return;
+      const ventaReal = ventaByKey.get(key) || 0;
+      const pct = ventaReal / presupuesto;
+      rows.push({ sedeName, periodKey: mes, periodLabel: ventaPeriodLabel(mes, 'month'), ventaReal, presupuesto, pct, cumple: pct >= 1 });
+    });
   });
+  rows.sort((a, b) => (a.periodKey === b.periodKey ? a.sedeName.localeCompare(b.sedeName) : (a.periodKey < b.periodKey ? -1 : 1)));
 
   el('presuHistoricoTableBody').innerHTML = rows.length ? rows.slice().reverse().map(r => {
-    const cls = r.pct == null ? '' : (r.cumple ? 'diff-zero' : 'diff-neg');
-    return '<tr><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.ventaReal) + '</td><td>' + (r.presupuesto > 0 ? fmtCOP(r.presupuesto) : '—') + '</td><td class="' + cls + '">' + (r.pct == null ? '—' : fmtPct(r.pct)) + '</td><td>' + (r.pct == null ? '—' : (r.cumple ? '✓ Cumplió' : '✗ No cumplió')) + '</td></tr>';
-  }).join('') : '<tr><td colspan="5" class="left">Todavía no hay un mes cerrado con presupuesto cargado.</td></tr>';
+    const cls = r.cumple ? 'diff-zero' : 'diff-neg';
+    return '<tr><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtCOP(r.ventaReal) + '</td><td>' + fmtCOP(r.presupuesto) + '</td><td class="' + cls + '">' + fmtPct(r.pct) + '</td><td>' + (r.cumple ? '✓ Cumplió' : '✗ No cumplió') + '</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="left">Todavía no hay un mes cerrado con presupuesto cargado' + (mesRange ? ' en el rango de fechas elegido' : '') + '.</td></tr>';
 
   destroyChart('presupuestoHistorico');
-  const labels = rows.map(r => r.periodLabel);
-  const pctValues = rows.map(r => (r.pct == null ? 0 : r.pct * 100));
-  const colors = rows.map(r => r.pct == null ? '#8892b0' : (r.cumple ? '#2be3a8' : '#ff3b6e'));
+  const labels = allMonthKeys.map(k => ventaPeriodLabel(k, 'month'));
+  const rowsByKey = new Map(rows.map(r => [r.sedeName + '|' + r.periodKey, r]));
+  const datasets = sedesEnAlcance.map((sedeName, i) => ({
+    label: sedeName,
+    data: allMonthKeys.map(mes => { const r = rowsByKey.get(sedeName + '|' + mes); return r ? Math.round(r.pct * 1000) / 10 : null; }),
+    backgroundColor: colorForSedeIndex(i),
+    borderRadius: 6
+  }));
+  const histOpts = chartOptions(['% de cumplimiento del presupuesto por mes' + (sedeFilter ? ' — ' + sedeFilter : ' — por sede'), 'Meta = 100%'], null, (v) => fmtPct(v / 100));
+  histOpts.plugins.legend.display = sedesEnAlcance.length > 1;
   charts.presupuestoHistorico = new Chart(el('chartPresupuestoHistorico').getContext('2d'), {
     type: 'bar',
-    data: { labels, datasets: [{ label: '% Cumplimiento', data: pctValues, backgroundColor: colors, borderRadius: 6 }] },
-    options: chartOptions(['% de cumplimiento del presupuesto por mes' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Meta = 100%'], null, (v) => fmtPct(v / 100))
+    data: { labels, datasets },
+    options: histOpts
   });
 
   const byYear = new Map();
@@ -1036,10 +1113,10 @@ function renderPresupuestoHistorico(sedeFilter, curAnio, curMes){
   }).join('') : '<tr><td colspan="6" class="left">Todavía no hay años con meses cerrados.</td></tr>';
 }
 
-// "Mermas": a diferencia de las otras 3 vistas, ignora
-// métrica/granularidad-de-Balance/fechas — usa su PROPIO histórico
-// (RAW_MOV_WEEKS) con la granularidad ya elegida en "filterGranularidad" y
-// solo respeta el filtro de sede, más su propio selector de Bloque.
+// "Mermas": ignora la métrica de Balance/Ventas, usa su PROPIO histórico
+// (RAW_MOV_WEEKS) con la granularidad ya elegida en "filterGranularidad" —
+// pero SÍ respeta fechas exactas (Desde/Hasta, vía recomputeData -> baseMovWeeksData)
+// y el filtro de sede, más su propio selector de Bloque.
 function movMetricFor(bloqueFilter, point){
   if (!bloqueFilter) return { disponible: point.disponible, diferenciaKL: point.diferenciaKL, pctDiferencia: point.pctDiferencia };
   const b = (point.byBloque || []).find(x => x.bloque === bloqueFilter);
@@ -1076,7 +1153,7 @@ function viewMermas(){
   const lastPct = lastDisp === 0 ? 0 : lastDif / lastDisp;
   el('mermasKpiGrid').innerHTML =
     '<div class="kpi-card"><div class="kpi-label">Sedes con historial</div><div class="kpi-value">' + data.sedeNames.length + '</div></div>' +
-    '<div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">' + RAW_MOV_WEEKS.length + '</div></div>' +
+    '<div class="kpi-card"><div class="kpi-label">Semanas guardadas</div><div class="kpi-value">' + baseMovWeeksData().length + '</div></div>' +
     '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Diferencia KL — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtNum(lastDif) + '</div></div>' +
     '<div class="kpi-card ' + (lastDif < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">% Diferencia — último ' + GRAN_LABELS[data.granularity] + bloqueLabel + '</div><div class="kpi-value">' + fmtPct(lastPct) + '</div></div>';
 

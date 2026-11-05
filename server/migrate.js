@@ -16,7 +16,14 @@ export async function runMigrations() {
   const files = readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith('.sql')).sort();
   for (const file of files) {
     const sql = readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
-    await pool.query(sql);
-    console.log(`[migrate] aplicado ${file}`);
+    try {
+      await pool.query(sql);
+      console.log(`[migrate] aplicado ${file}`);
+    } catch (err) {
+      // Un archivo viejo que ya no aplica limpio (ej. un CHECK que una
+      // migración más nueva reemplazó) no debe tumbar las que vienen
+      // después — se loguea y se sigue, en vez de abortar todo el resto.
+      console.error(`[migrate] ${file} falló (se continúa con las siguientes):`, err.message);
+    }
   }
 }
