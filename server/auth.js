@@ -110,3 +110,13 @@ export function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
   next();
 }
+
+// Requiere 'full', 'admin' O 'gestionh' — carve-out puntual para Gestión
+// Humana, que SOLO debe ver el informe de Horas Extras PDV (ver
+// gestionHScreen en index.html) y nada de Balance/Mermas/Ventas/Auditorías
+// (esas rutas siguen exigiendo requireFullAccess, que 'gestionh' no cumple).
+export function requireHorasAccess(req, res, next) {
+  const role = req.user?.role;
+  if (role !== 'full' && role !== 'admin' && role !== 'gestionh') return res.status(403).json({ error: 'No tienes acceso a esta sección.' });
+  next();
+}

@@ -14,7 +14,7 @@ import { ventasRouter } from './routes/ventas.js';
 import { horasExtrasRouter } from './routes/horasExtras.js';
 import { horasExtrasPlantaRouter } from './routes/horasExtrasPlanta.js';
 import { authRouter } from './routes/auth.js';
-import { requireAuth, requireFullAccess } from './auth.js';
+import { requireAuth, requireFullAccess, requireHorasAccess } from './auth.js';
 import { runMigrations } from './migrate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +47,10 @@ app.use('/api/balance', requireFullAccess, balanceRouter);
 app.use('/api/movimientos', requireFullAccess, movimientosRouter);
 app.use('/api/auditorias', requireFullAccess, auditoriasRouter);
 app.use('/api/ventas', requireFullAccess, ventasRouter);
-app.use('/api/horas-extras', requireFullAccess, horasExtrasRouter);
+// Horas Extras PDV: 'full'/'admin' Y además 'gestionh' (Gestión Humana) —
+// 'gestionh' NO tiene acceso a nada más de lo de arriba (balance/mermas/
+// ventas/auditorías siguen exigiendo requireFullAccess).
+app.use('/api/horas-extras', requireHorasAccess, horasExtrasRouter);
 
 app.use(express.static(DIST_WEB));
 

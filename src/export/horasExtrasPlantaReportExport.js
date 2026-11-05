@@ -23,7 +23,10 @@ export function buildHorasExtrasPlantaReportHtml(rawHorasRows, chartJsSource, me
   }));
   const horasJson = JSON.stringify(rawHoras);
   const generatedAt = new Date().toLocaleString('es-CO');
-  const title = 'Informe H.E Planta — Carnes Brangus';
+  // Reusado tal cual para el informe exclusivo de Gestión Humana (PDV, sin
+  // mermas/ventas/margen) — mismo molde, solo cambia el título/encabezado.
+  const title = meta?.title || 'Informe H.E Planta — Carnes Brangus';
+  const heading = meta?.heading || 'Informe H.E Planta';
   const sedeCount = new Set(rawHoras.map(r => r.sedeName)).size;
 
   return `<!DOCTYPE html>
@@ -40,7 +43,7 @@ ${VIEWER_CSS}
 <div class="wrap">
   <header class="top">
     <div>
-      <h1>Informe H.E Planta</h1>
+      <h1>${escapeHtml(heading)}</h1>
       <p class="sub">Generado el ${escapeHtml(generatedAt)}${meta?.appBuild ? ' · versión de la app ' + escapeHtml(meta.appBuild) : ''} · ${sedeCount} sede(s) · ${rawHoras.length} registro(s)</p>
     </div>
     <button class="theme-btn" id="themeToggleBtn" title="Personalizar aspecto">🎨 Personalizar</button>

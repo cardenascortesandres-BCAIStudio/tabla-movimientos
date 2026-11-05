@@ -92,6 +92,17 @@
     </div>
   </div>
 
+  <!-- Pantalla exclusiva del rol 'gestionh' (Gestión Humana) — ve solo esto,
+       nunca el resto del tablero (sin mermas/ventas/margen). Un único botón
+       que descarga el mismo informe interactivo de Horas Extras PDV, pero
+       generado aparte (no mezclado con Balance/Mermas/Ventas). -->
+  <div class="card mode-choice hidden-block" id="gestionHScreen" style="max-width:520px;margin:0 auto;text-align:center;">
+    <h2 style="margin-top:0">⏱ Reporte de Horas Extras</h2>
+    <p class="mode-desc" style="margin-bottom:24px;">Descarga el informe de horas extras de todas las sedes — alertas por empleado, acumulado por sede, ranking y detalle día a día.</p>
+    <button type="button" class="btn-primary" id="gestionHDownloadBtn" style="font-size:16px;padding:14px 28px;">⬇ Descargar Reporte de Horas Extras</button>
+    <p class="hint" id="gestionHHint" style="margin-top:14px;"></p>
+  </div>
+
   <div id="movimientosFlow" class="hidden-block">
     <button type="button" class="btn-secondary back-btn" id="backFromMovimientosBtn">‹ Volver al inicio</button>
 

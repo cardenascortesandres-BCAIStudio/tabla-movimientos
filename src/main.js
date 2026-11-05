@@ -2855,6 +2855,34 @@ async function downloadHorasPlantaReport() {
   }
 }
 
+// Informe exclusivo del rol 'gestionh' — mismo informe interactivo que ya
+// existe para Horas Extras PDV (reusa buildHorasExtrasPlantaReportHtml, que
+// solo depende de la FORMA de las filas, no de cuál tabla vinieron), pero
+// generado por su cuenta: 'gestionh' nunca visita Reportes > Horas Extras
+// (esa vista viene mezclada con Mermas/Ventas/Margen, lo que el usuario
+// pidió explícitamente evitar), así que se pide el historial fresco acá
+// mismo en vez de depender de horasExtrasAllDias ya cargado.
+async function downloadGestionHReport() {
+  const btn = el('gestionHDownloadBtn');
+  const hint = el('gestionHHint');
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Generando…'; hint.textContent = '';
+  try {
+    const { dias } = await horasExtrasApi.getAllDias();
+    if (!dias || !dias.length) { hint.textContent = 'Todavía no hay horas extra guardadas en el historial.'; return; }
+    const html = buildHorasExtrasPlantaReportHtml(dias, chartJsRawSource, {
+      appBuild: APP_BUILD,
+      title: 'Informe de Horas Extras — Carnes Brangus',
+      heading: 'Informe de Horas Extras'
+    });
+    downloadBlob(html, stampName('informe_horas_extras'), 'text/html');
+  } catch (err) {
+    hint.textContent = '⚠ No se pudo generar el informe: ' + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = originalText;
+  }
+}
+
 
 // ---------------- Modo claro/oscuro (paneles tipo dashboard) ----------------
 // Los 6 paneles con fondo oscuro ("estilo Power BI") son los únicos oscuros
@@ -2939,8 +2967,17 @@ function showAuthenticated() {
   el('userBadge').classList.remove('hidden-block');
   el('userBadgeName').textContent = currentUser.displayName || currentUser.username;
   applyRoleRestrictions();
-  el('modeChoiceCard').classList.remove('hidden-block');
-  switchFlow('choice');
+  // 'gestionh' (Gestión Humana) nunca ve el tablero normal — ni siquiera el
+  // menú "¿Qué quieres hacer?" — solo la pantalla de descarga del informe de
+  // Horas Extras (ver gestionHScreen en index.html).
+  if (currentUser.role === 'gestionh') {
+    el('modeChoiceCard').classList.add('hidden-block');
+    el('gestionHScreen').classList.remove('hidden-block');
+  } else {
+    el('gestionHScreen').classList.add('hidden-block');
+    el('modeChoiceCard').classList.remove('hidden-block');
+    switchFlow('choice');
+  }
   startHeartbeat();
 }
 
@@ -2948,6 +2985,7 @@ function showLoginScreen() {
   stopHeartbeat();
   stopUsuariosAutoRefresh();
   el('modeChoiceCard').classList.add('hidden-block');
+  el('gestionHScreen').classList.add('hidden-block');
   el('userBadge').classList.add('hidden-block');
   el('loginScreen').classList.remove('hidden-block');
 }
@@ -3039,7 +3077,7 @@ async function loadUsuariosReportesData() {
 }
 
 function renderUsuariosTable(users) {
-  const ROLE_LABELS = { full: 'Acceso total', planta: 'Horas Extras Planta' };
+  const ROLE_LABELS = { full: 'Acceso total', planta: 'Horas Extras Planta', gestionh: 'Horas Extras (Gestión Humana)' };
   el('usuariosTableBody').innerHTML = users.map(u => {
     const estado = u.online ? '🟢 En línea' : '⚫ Desconectado';
     return `<tr><td>${escapeHtml(u.username)}</td><td>${escapeHtml(u.displayName)}</td><td>${escapeHtml(ROLE_LABELS[u.role] || u.role)}</td><td>${estado}</td><td>${u.lastLoginAt ? escapeHtml(new Date(u.lastLoginAt).toLocaleString('es-CO')) : 'nunca'}</td><td>${escapeHtml(formatRelativeTime(u.lastSeenAt))}</td></tr>`;
@@ -3223,6 +3261,7 @@ el('horasPlantaFechaLimpiarBtn').addEventListener('click', () => {
   renderReportesHorasPlantaView();
 });
 el('horasPlantaDownloadBtn').addEventListener('click', downloadHorasPlantaReport);
+el('gestionHDownloadBtn').addEventListener('click', downloadGestionHReport);
 initHorasPlantaPeriodPopover();
 for (const id of ['horasPlantaAlertasTableBody', 'horasPlantaReportesTableBody']) {
   el(id).addEventListener('click', (e) => {
