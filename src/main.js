@@ -2556,7 +2556,13 @@ function horasCorteLabel(rows) {
   return d.getUTCDate() + ' de ' + MESES[d.getUTCMonth()] + ' de ' + d.getUTCFullYear();
 }
 function renderReportesHorasView(sedeFilter, granularity) {
-  if (!horasExtrasAllDias || !horasExtrasAllDias.length) return;
+  // Horas Extras es el ÚLTIMO dato en cargar (Balance -> Ventas -> Mermas ->
+  // Horas, en ese orden, ver loadReportesData) — sin este aviso, cambiar a
+  // esta pestaña ANTES de que termine de llegar mostraba todo en blanco
+  // (parecía roto) en vez de "está cargando".
+  const yaCargado = Boolean(horasExtrasAllDias && horasExtrasAllDias.length);
+  el('horasReportesLoadingHint').classList.toggle('hidden-block', yaCargado);
+  if (!yaCargado) return;
 
   // Calendario EXACTO (Desde/Hasta) — acota los días ANTES de agregar por
   // semana/mes/año, para poder elegir un rango puntual (ej. "del 5 al 10")
