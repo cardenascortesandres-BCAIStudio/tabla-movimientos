@@ -108,12 +108,9 @@ ${VIEWER_CSS}
     <select id="filterSede"></select>
     <select id="filterBloque"></select>
     <select id="filterEmpleadoHoras"></select>
-    <label style="display:flex;align-items:center;gap:6px;font-size:13px;" id="reportesFechaDesdeLabel">Desde <input type="date" id="reportesFechaDesde"></label>
-    <label style="display:flex;align-items:center;gap:6px;font-size:13px;" id="reportesFechaHastaLabel">Hasta <input type="date" id="reportesFechaHasta"></label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Desde <input type="date" id="reportesFechaDesde"></label>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Hasta <input type="date" id="reportesFechaHasta"></label>
     <button type="button" class="theme-btn" id="reportesFechaLimpiarBtn">✕ Quitar fechas exactas</button>
-    <label class="hidden-block" style="display:flex;align-items:center;gap:6px;font-size:13px;">Desde <input type="date" id="horasFechaDesde"></label>
-    <label class="hidden-block" style="display:flex;align-items:center;gap:6px;font-size:13px;">Hasta <input type="date" id="horasFechaHasta"></label>
-    <button type="button" class="theme-btn hidden-block" id="horasFechaLimpiarBtn">✕ Quitar fechas exactas</button>
     <div class="periodo-picker">
       <button type="button" class="theme-btn" id="periodoBtn">📅 Fechas</button>
       <div class="periodo-popover hidden-block" id="periodoPopover">
@@ -643,15 +640,12 @@ let selectedPeriods = null; // Set<periodKey> | null (null = todos) — Balance/
 let selectedPeriodsMermas = null;
 // Horas Extras: calendario propio (horas_extra_dias, día a día) — con un solo mes/año cargado baja a semanas.
 let selectedPeriodsHoras = null;
-// Calendario EXACTO (Desde/Hasta) — además de los chips de semana/mes/año,
-// deja acotar a un rango de días puntual. Se aplica ANTES de agregar por
-// granularidad (ver horasBaseDias), igual que en el dashboard en pantalla.
-let horasFechaDesde = null, horasFechaHasta = null;
-// Mismo criterio, pero COMPARTIDO entre Serie de tiempo/Comparativa/
-// Presupuesto/Mermas — a pedido explícito del usuario ("que funcionen todos
-// los filtros para todos los reportes... que al descargar se vea
-// reflejado"): antes el selector de fechas del informe descargado no
-// filtraba nada fuera de Horas Extras.
+// Calendario EXACTO (Desde/Hasta) — UN SOLO par, compartido por las 5
+// vistas (antes había uno aparte para Horas Extras, que el usuario seguía
+// viendo como "selector duplicado" aunque solo se mostrara uno a la vez —
+// ver main.js para el mismo cambio en el dashboard en pantalla). Se aplica
+// ANTES de agregar por granularidad en cada vista (baseWeeks/baseVentas/
+// baseMovWeeksData/horasBaseDias).
 let reportesFechaDesde = null, reportesFechaHasta = null;
 function weekInRange(w, desde, hasta){
   if (!desde && !hasta) return true;
@@ -669,10 +663,10 @@ function baseWeeks(){ return (reportesFechaDesde || reportesFechaHasta) ? RAW_WE
 function baseVentas(){ return (reportesFechaDesde || reportesFechaHasta) ? RAW_VENTAS.filter(d => diaInRange(d.fecha, reportesFechaDesde, reportesFechaHasta)) : RAW_VENTAS; }
 function baseMovWeeksData(){ return (reportesFechaDesde || reportesFechaHasta) ? RAW_MOV_WEEKS.filter(w => weekInRange(w, reportesFechaDesde, reportesFechaHasta)) : RAW_MOV_WEEKS; }
 function horasBaseDias(){
-  if (!horasFechaDesde && !horasFechaHasta) return RAW_HORAS;
+  if (!reportesFechaDesde && !reportesFechaHasta) return RAW_HORAS;
   return RAW_HORAS.filter(r => {
     const f = String(r.fecha).slice(0, 10);
-    return (!horasFechaDesde || f >= horasFechaDesde) && (!horasFechaHasta || f <= horasFechaHasta);
+    return (!reportesFechaDesde || f >= reportesFechaDesde) && (!reportesFechaHasta || f <= reportesFechaHasta);
   });
 }
 function horasPeriodData(){
@@ -690,12 +684,6 @@ function activePeriodsSet(v){ if (activeView === 'mermas') selectedPeriodsMermas
 function updateFilterVisibility(){
   el('filterMetrica').classList.toggle('hidden-block', activeView === 'presupuesto' || activeView === 'mermas' || activeView === 'horas');
   el('filterEmpleadoHoras').classList.toggle('hidden-block', activeView === 'presupuesto' || activeView === 'mermas');
-  el('horasFechaDesde').closest('label').classList.toggle('hidden-block', activeView !== 'horas');
-  el('horasFechaHasta').closest('label').classList.toggle('hidden-block', activeView !== 'horas');
-  el('horasFechaLimpiarBtn').classList.toggle('hidden-block', activeView !== 'horas');
-  el('reportesFechaDesdeLabel').classList.toggle('hidden-block', activeView === 'horas');
-  el('reportesFechaHastaLabel').classList.toggle('hidden-block', activeView === 'horas');
-  el('reportesFechaLimpiarBtn').classList.toggle('hidden-block', activeView === 'horas');
 }
 
 function recomputeData(){
@@ -760,14 +748,6 @@ function initFilters(){
   sedeSel.addEventListener('change', () => { renderKpis(); refreshActiveView(); });
   el('filterBloque').addEventListener('change', refreshActiveView);
   el('filterEmpleadoHoras').addEventListener('change', refreshActiveView);
-  el('horasFechaDesde').addEventListener('change', () => { horasFechaDesde = el('horasFechaDesde').value || null; selectedPeriodsHoras = null; renderPeriodPopover(); refreshActiveView(); });
-  el('horasFechaHasta').addEventListener('change', () => { horasFechaHasta = el('horasFechaHasta').value || null; selectedPeriodsHoras = null; renderPeriodPopover(); refreshActiveView(); });
-  el('horasFechaLimpiarBtn').addEventListener('click', () => {
-    horasFechaDesde = null; horasFechaHasta = null;
-    el('horasFechaDesde').value = ''; el('horasFechaHasta').value = '';
-    selectedPeriodsHoras = null;
-    renderPeriodPopover(); refreshActiveView();
-  });
   el('reportesFechaDesde').addEventListener('change', () => {
     reportesFechaDesde = el('reportesFechaDesde').value || null;
     recomputeData(); refreshSedeOptions(); renderKpis(); refreshActiveView();

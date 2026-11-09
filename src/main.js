@@ -846,20 +846,15 @@ let reportesSelectedPeriods = null; // Set<periodKey> | null (null = todos los p
 let reportesMermasSelectedPeriods = null;
 // Horas Extras también tiene su propio calendario (horas_extra_dias, día a día) — para poder ver quién hizo más horas extra en la semana elegida.
 let reportesHorasSelectedPeriods = null;
-// Selector de fechas EXACTAS (calendario Desde/Hasta) — a pedido explícito
-// del usuario, además de los chips de semana/mes/año: deja acotar a días
-// puntuales (ej. "del 5 al 10") en vez de solo periodos completos. Cuando
-// están puestas, acotan el conjunto de días ANTES de agregar por semana/mes/
-// año (ver renderReportesHorasView) — los chips de "📅 Fechas" siguen
-// funcionando dentro de ese rango.
-let horasFechaDesde = null, horasFechaHasta = null;
-// Mismo selector de fechas exactas, pero COMPARTIDO entre Serie de tiempo,
-// Comparativa entre sedes, Presupuesto y Mermas (a pedido explícito del
-// usuario: "que funcionen todos los filtros para todos los reportes") — un
-// solo rango de fechas que acota balance_weeks/ventas_dias/movimientos_weeks
-// ANTES de agregar por semana/mes/año. Horas Extras queda aparte (tiene el
-// suyo propio arriba) porque vive en su propia sub-pestaña con su propio
-// filtro de fechas, no se mezclan.
+// Selector de fechas EXACTAS (calendario Desde/Hasta) — UN SOLO par,
+// compartido por las 5 sub-pestañas (Serie de tiempo/Comparativa/
+// Presupuesto/Mermas/Horas Extras), a pedido explícito del usuario ("que
+// funcionen todos los filtros para todos los reportes... deja uno solo que
+// funcione para filtrar todos los reportes" — antes había dos pares
+// distintos, uno compartido y otro propio de Horas Extras, que aunque solo
+// se mostraba uno a la vez, el usuario lo seguía viendo como "duplicado").
+// Acota el conjunto de días/semanas ANTES de agregar por semana/mes/año —
+// los chips de "📅 Fechas" siguen funcionando dentro de ese rango.
 let reportesFechaDesde = null, reportesFechaHasta = null;
 // true si la semana [week_start, week_end] de una fila se TRASLAPA con el
 // rango [desde, hasta] elegido (no exige que caiga completa adentro — una
@@ -1073,9 +1068,6 @@ function switchReportesSubView(view) {
   el('reportesHorasView').classList.toggle('hidden-block', view !== 'horas');
   // El selector Margen/Utilidad/Ventas solo aplica a Serie de tiempo y Comparativa entre sedes.
   el('reportesMetrica').classList.toggle('hidden-block', view === 'presupuesto' || view === 'mermas' || view === 'horas');
-  // Fechas exactas compartidas (Balance/Ventas/Presupuesto/Mermas) — Horas
-  // Extras tiene su propio par de fechas dentro de su subvista, no se mezclan.
-  ['reportesFechaDesdeLabel', 'reportesFechaHastaLabel', 'reportesFechaLimpiarBtn'].forEach(id => el(id).classList.toggle('hidden-block', view === 'horas'));
   if (reportesWeeks) renderReportes();
 }
 
@@ -2565,13 +2557,14 @@ function renderReportesHorasView(sedeFilter, granularity) {
   el('horasReportesLoadingHint').classList.toggle('hidden-block', yaCargado);
   if (!yaCargado) return;
 
-  // Calendario EXACTO (Desde/Hasta) — acota los días ANTES de agregar por
+  // Calendario EXACTO (Desde/Hasta) — el mismo selector compartido de arriba
+  // (reportesFechaDesde/Hasta), acota los días ANTES de agregar por
   // semana/mes/año, para poder elegir un rango puntual (ej. "del 5 al 10")
   // en vez de solo semanas/meses/años completos.
-  const baseDias = (horasFechaDesde || horasFechaHasta)
+  const baseDias = (reportesFechaDesde || reportesFechaHasta)
     ? horasExtrasAllDias.filter(r => {
         const f = String(r.fecha).slice(0, 10);
-        return (!horasFechaDesde || f >= horasFechaDesde) && (!horasFechaHasta || f <= horasFechaHasta);
+        return (!reportesFechaDesde || f >= reportesFechaDesde) && (!reportesFechaHasta || f <= reportesFechaHasta);
       })
     : horasExtrasAllDias;
 
@@ -3266,18 +3259,18 @@ el('reportesGranularity').addEventListener('change', () => { reportesSelectedPer
 el('reportesSedeFilter').addEventListener('change', renderReportes);
 el('reportesFechaDesde').addEventListener('change', () => {
   reportesFechaDesde = el('reportesFechaDesde').value || null;
-  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null;
+  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; reportesHorasSelectedPeriods = null;
   renderReportes();
 });
 el('reportesFechaHasta').addEventListener('change', () => {
   reportesFechaHasta = el('reportesFechaHasta').value || null;
-  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null;
+  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; reportesHorasSelectedPeriods = null;
   renderReportes();
 });
 el('reportesFechaLimpiarBtn').addEventListener('click', () => {
   reportesFechaDesde = null; reportesFechaHasta = null;
   el('reportesFechaDesde').value = ''; el('reportesFechaHasta').value = '';
-  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null;
+  reportesSelectedPeriods = null; reportesMermasSelectedPeriods = null; reportesHorasSelectedPeriods = null;
   renderReportes();
 });
 el('reportesDownloadBtn').addEventListener('click', () => downloadReportesReport());
@@ -3327,14 +3320,6 @@ el('backFromHorasExtrasBtn').addEventListener('click', () => switchFlow('choice'
 wireMultiFileDropzone('horasDropzone', 'horasFileInput', horasUploader.handleFiles);
 el('horasSaveBtn').addEventListener('click', horasUploader.saveAll);
 el('horasReportesEmpleadoFilter').addEventListener('change', renderReportes);
-el('horasFechaDesde').addEventListener('change', () => { horasFechaDesde = el('horasFechaDesde').value || null; reportesHorasSelectedPeriods = null; renderReportes(); });
-el('horasFechaHasta').addEventListener('change', () => { horasFechaHasta = el('horasFechaHasta').value || null; reportesHorasSelectedPeriods = null; renderReportes(); });
-el('horasFechaLimpiarBtn').addEventListener('click', () => {
-  horasFechaDesde = null; horasFechaHasta = null;
-  el('horasFechaDesde').value = ''; el('horasFechaHasta').value = '';
-  reportesHorasSelectedPeriods = null;
-  renderReportes();
-});
 for (const id of ['horasAlertasTableBody', 'horasReportesTableBody']) {
   el(id).addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-emp]');
