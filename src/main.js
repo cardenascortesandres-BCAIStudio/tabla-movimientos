@@ -2488,7 +2488,8 @@ function createHorasUploader(ids, api, onSaved) {
         sedeName: e.sedeName || emp.sede, empleadoId: emp.empleadoId, empleadoNombre: emp.nombre, cargo: emp.cargo,
         fecha: d.fecha, estadoDia: d.estadoDia, total: d.total, comida: d.comida, f: d.f, hdo: d.hdo,
         rn: d.rn, rndyf: d.rndyf, dom: d.dom, d: d.d, hefd: d.hefd, hefn: d.hefn, he: d.he, hen: d.hen,
-        entrada1: d.entrada1, salida1: d.salida1, entrada2: d.entrada2, salida2: d.salida2
+        entrada1: d.entrada1, salida1: d.salida1, entrada2: d.entrada2, salida2: d.salida2,
+        entrada3: d.entrada3, salida3: d.salida3, entrada4: d.entrada4, salida4: d.salida4
       });
     })));
     const btn = el(ids.saveBtn);
