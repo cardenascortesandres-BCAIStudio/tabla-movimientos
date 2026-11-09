@@ -2580,14 +2580,16 @@ function renderReportesHorasView(sedeFilter, granularity) {
   const selectedSet = reportesHorasSelectedPeriods || new Set(cal.periodKeysSorted);
   const scopedAll = baseDias.filter(r => selectedSet.has(horasPeriodKeyFor(r.fecha, gran)));
   const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sede_name === sedeFilter) : scopedAll;
+  // Caja de texto con sugerencias (datalist) en vez de un <select> — con
+  // 100+ empleados, buscar por nombre escribiendo es mucho más rápido que
+  // desplazarse por una lista larga. Filtra por coincidencia parcial
+  // (sin acentos/mayúsculas) apenas se escribe, no hace falta elegir una
+  // sugerencia exacta.
   const empleadoNames = Array.from(new Map(rowsInSede.map(r => [r.empleado_id, r.empleado_nombre])).entries());
-  const empSel = el('horasReportesEmpleadoFilter');
-  const prevEmp = empSel.value;
-  empSel.innerHTML = '<option value="">Todos los empleados</option>' + empleadoNames.map(([id, nombre]) => `<option value="${escapeHtml(id)}">${escapeHtml(nombre)}</option>`).join('');
-  if (empleadoNames.some(([id]) => id === prevEmp)) empSel.value = prevEmp;
-  const empleadoFilter = empSel.value;
+  el('horasEmpleadoList').innerHTML = empleadoNames.map(([, nombre]) => `<option value="${escapeHtml(nombre)}">`).join('');
+  const empleadoQuery = removeAccents(el('horasReportesEmpleadoFilter').value.trim()).toLowerCase();
 
-  const rows = empleadoFilter ? rowsInSede.filter(r => r.empleado_id === empleadoFilter) : rowsInSede;
+  const rows = empleadoQuery ? rowsInSede.filter(r => removeAccents(r.empleado_nombre || '').toLowerCase().includes(empleadoQuery)) : rowsInSede;
 
   const { lastWeek, alertas } = computeHorasAlertas(scopedAll, sedeFilter);
   const corte = horasCorteLabel(horasExtrasAllDias);
@@ -2829,12 +2831,9 @@ function renderReportesHorasPlantaView() {
 
   const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sede_name === sedeFilter) : scopedAll;
   const empleadoNames = Array.from(new Map(rowsInSede.map(r => [r.empleado_id, r.empleado_nombre])).entries());
-  const empSel = el('horasPlantaReportesEmpleadoFilter');
-  const prevEmp = empSel.value;
-  empSel.innerHTML = '<option value="">Todos los empleados</option>' + empleadoNames.map(([id, nombre]) => `<option value="${escapeHtml(id)}">${escapeHtml(nombre)}</option>`).join('');
-  if (empleadoNames.some(([id]) => id === prevEmp)) empSel.value = prevEmp;
-  const empleadoFilter = empSel.value;
-  const rows = empleadoFilter ? rowsInSede.filter(r => r.empleado_id === empleadoFilter) : rowsInSede;
+  el('horasPlantaEmpleadoList').innerHTML = empleadoNames.map(([, nombre]) => `<option value="${escapeHtml(nombre)}">`).join('');
+  const empleadoQuery = removeAccents(el('horasPlantaReportesEmpleadoFilter').value.trim()).toLowerCase();
+  const rows = empleadoQuery ? rowsInSede.filter(r => removeAccents(r.empleado_nombre || '').toLowerCase().includes(empleadoQuery)) : rowsInSede;
 
   const { lastWeek, alertas } = computeHorasAlertas(scopedAll, sedeFilter);
   const corte = horasCorteLabel(horasPlantaAllDias);
@@ -3323,7 +3322,7 @@ el('modeHorasExtrasBtn').addEventListener('click', () => switchFlow('horasExtras
 el('backFromHorasExtrasBtn').addEventListener('click', () => switchFlow('choice'));
 wireMultiFileDropzone('horasDropzone', 'horasFileInput', horasUploader.handleFiles);
 el('horasSaveBtn').addEventListener('click', horasUploader.saveAll);
-el('horasReportesEmpleadoFilter').addEventListener('change', renderReportes);
+el('horasReportesEmpleadoFilter').addEventListener('input', renderReportes);
 for (const id of ['horasAlertasTableBody', 'horasReportesTableBody']) {
   el(id).addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-emp]');
@@ -3339,7 +3338,7 @@ el('backFromHorasExtrasPlantaBtn').addEventListener('click', () => switchFlow('c
 wireMultiFileDropzone('horasPlantaDropzone', 'horasPlantaFileInput', horasPlantaUploader.handleFiles);
 el('horasPlantaSaveBtn').addEventListener('click', horasPlantaUploader.saveAll);
 el('horasPlantaReportesSedeFilter').addEventListener('change', renderReportesHorasPlantaView);
-el('horasPlantaReportesEmpleadoFilter').addEventListener('change', renderReportesHorasPlantaView);
+el('horasPlantaReportesEmpleadoFilter').addEventListener('input', renderReportesHorasPlantaView);
 el('horasPlantaReportesGranularity').addEventListener('change', () => { horasPlantaSelectedPeriods = null; renderReportesHorasPlantaView(); });
 el('horasPlantaFechaDesde').addEventListener('change', () => { horasPlantaFechaDesde = el('horasPlantaFechaDesde').value || null; horasPlantaSelectedPeriods = null; renderReportesHorasPlantaView(); });
 el('horasPlantaFechaHasta').addEventListener('change', () => { horasPlantaFechaHasta = el('horasPlantaFechaHasta').value || null; horasPlantaSelectedPeriods = null; renderReportesHorasPlantaView(); });

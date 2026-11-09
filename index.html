@@ -482,7 +482,8 @@
 
         <div class="hidden-block" id="reportesHorasView">
           <div class="dash-filters">
-            <select id="horasReportesEmpleadoFilter"></select>
+            <input type="text" id="horasReportesEmpleadoFilter" list="horasEmpleadoList" placeholder="🔎 Buscar empleado…" autocomplete="off">
+            <datalist id="horasEmpleadoList"></datalist>
             <button type="button" class="btn-secondary" id="horasDownloadBtn">⬇ Descargar informe de Horas Extras (HTML)</button>
           </div>
           <p class="hint hidden-block" id="horasReportesLoadingHint">Cargando historial de horas extras…</p>
@@ -623,7 +624,8 @@
       <div id="reportesHorasPlantaView" class="hidden-block">
         <div class="dash-filters">
           <select id="horasPlantaReportesSedeFilter"></select>
-          <select id="horasPlantaReportesEmpleadoFilter"></select>
+          <input type="text" id="horasPlantaReportesEmpleadoFilter" list="horasPlantaEmpleadoList" placeholder="🔎 Buscar empleado…" autocomplete="off">
+          <datalist id="horasPlantaEmpleadoList"></datalist>
           <select id="horasPlantaReportesGranularity">
             <option value="week" selected>Semanal</option>
             <option value="month">Mensual</option>

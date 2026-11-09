@@ -69,7 +69,8 @@ ${VIEWER_CSS}
       <option value="year">Anual</option>
     </select>
     <select id="filterSede"></select>
-    <select id="filterEmpleadoHoras"></select>
+    <input type="text" id="filterEmpleadoHoras" list="filterEmpleadoHorasList" placeholder="🔎 Buscar empleado…" autocomplete="off">
+    <datalist id="filterEmpleadoHorasList"></datalist>
     <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Desde <input type="date" id="horasFechaDesde"></label>
     <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Hasta <input type="date" id="horasFechaHasta"></label>
     <button type="button" class="theme-btn" id="horasFechaLimpiarBtn">✕ Quitar fechas exactas</button>
@@ -268,6 +269,7 @@ const VIEWER_JS = `
 function fmtNum(v){ if(v==null||isNaN(v)) return '0'; const r = Math.round(v*100)/100; return Number.isInteger(r) ? String(r) : r.toFixed(2); }
 function el(id){ return document.getElementById(id); }
 function escapeHtmlJs(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function removeAccentsJs(s){ return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 
 const ACCENTS = ['#3ea8ff','#2be3a8','#ff3b6e','#f0b429','#a86bff','#ff8a3d'];
 
@@ -367,7 +369,7 @@ function periodsInScope(){
 
 function initFilters(){
   el('filterSede').addEventListener('change', viewHoras);
-  el('filterEmpleadoHoras').addEventListener('change', viewHoras);
+  el('filterEmpleadoHoras').addEventListener('input', viewHoras);
   el('filterGranularidad').addEventListener('change', () => { selectedPeriods = null; viewHoras(); });
   el('horasFechaDesde').addEventListener('change', () => { horasFechaDesde = el('horasFechaDesde').value || null; selectedPeriods = null; viewHoras(); });
   el('horasFechaHasta').addEventListener('change', () => { horasFechaHasta = el('horasFechaHasta').value || null; selectedPeriods = null; viewHoras(); });
@@ -412,13 +414,10 @@ function viewHoras(){
   const scopeSet = new Set(periodsInScope());
   const scopedAll = horasBaseDias().filter(r => scopeSet.has(ventaPeriodKeyFor(r.fecha, gran)));
   const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sedeName === sedeFilter) : scopedAll;
-  const empSel = el('filterEmpleadoHoras');
-  const prevEmp = empSel.value;
   const empleados = Array.from(new Map(rowsInSede.map(r => [r.empleadoId, r.empleadoNombre])).entries());
-  empSel.innerHTML = '<option value="">Todos los empleados</option>' + empleados.map(([id, nombre]) => '<option value="' + id + '">' + escapeHtmlJs(nombre) + '</option>').join('');
-  if (empleados.some(([id]) => id === prevEmp)) empSel.value = prevEmp;
-  const empleadoFilter = empSel.value;
-  const rows = empleadoFilter ? rowsInSede.filter(r => r.empleadoId === empleadoFilter) : rowsInSede;
+  el('filterEmpleadoHorasList').innerHTML = empleados.map(([, nombre]) => '<option value="' + escapeHtmlJs(nombre) + '">').join('');
+  const empleadoQuery = removeAccentsJs(el('filterEmpleadoHoras').value.trim()).toLowerCase();
+  const rows = empleadoQuery ? rowsInSede.filter(r => removeAccentsJs(r.empleadoNombre || '').toLowerCase().includes(empleadoQuery)) : rowsInSede;
 
   const { lastWeek, alertas } = computeAlertasHoras(scopedAll, sedeFilter);
   const maxF = RAW_HORAS.reduce((m, r) => (!m || r.fecha > m ? r.fecha : m), null);

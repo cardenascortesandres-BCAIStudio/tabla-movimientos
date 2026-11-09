@@ -301,10 +301,12 @@ td.balance-used-cell{background:#fff176;color:#5c4a05;font-weight:700;}
 .periodo-popover-list label:hover{background:var(--dv-card-bg2);}
 .periodo-popover-list input[type=checkbox]{accent-color:var(--dv-chart-pos);width:15px;height:15px;flex:0 0 auto;}
 .dash-filters{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
-.dash-filters select{
+.dash-filters select, .dash-filters input[type=text]{
   background:var(--dv-select-bg);color:var(--dv-text);border:1px solid var(--dv-select-border);border-radius:7px;
   padding:8px 12px;font-size:13px;font-family:var(--font);
 }
+.dash-filters input[type=text]{min-width:220px;}
+.dash-filters input[type=text]::placeholder{color:var(--dv-text-muted);}
 .dash-filter-fecha{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dv-text-muted);}
 .dash-filter-fecha input[type=date]{
   background:var(--dv-select-bg);color:var(--dv-text);border:1px solid var(--dv-select-border);border-radius:7px;

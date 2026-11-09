@@ -107,7 +107,8 @@ ${VIEWER_CSS}
     </select>
     <select id="filterSede"></select>
     <select id="filterBloque"></select>
-    <select id="filterEmpleadoHoras"></select>
+    <input type="text" id="filterEmpleadoHoras" list="filterEmpleadoHorasList" placeholder="🔎 Buscar empleado…" autocomplete="off">
+    <datalist id="filterEmpleadoHorasList"></datalist>
     <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Desde <input type="date" id="reportesFechaDesde"></label>
     <label style="display:flex;align-items:center;gap:6px;font-size:13px;">Hasta <input type="date" id="reportesFechaHasta"></label>
     <button type="button" class="theme-btn" id="reportesFechaLimpiarBtn">✕ Quitar fechas exactas</button>
@@ -260,6 +261,7 @@ h1{font-size:20px;margin:0 0 4px;}
 .filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
 .filters select{background:var(--panel-bg);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:13px;}
 .filters input[type=date]{background:var(--panel-bg);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:7px 9px;font-size:13px;}
+.filters input[type=text]{background:var(--panel-bg);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:8px 12px;font-size:13px;min-width:220px;font-family:inherit;}
 .view-panel{background:var(--panel-bg);border:1px solid var(--border);border-radius:12px;padding:16px;}
 .chart-box{position:relative;height:400px;}
 .chart-dl-btn{position:absolute;top:8px;right:10px;z-index:5;width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--panel-bg);color:var(--muted);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.55;}
@@ -747,7 +749,7 @@ function initFilters(){
   });
   sedeSel.addEventListener('change', () => { renderKpis(); refreshActiveView(); });
   el('filterBloque').addEventListener('change', refreshActiveView);
-  el('filterEmpleadoHoras').addEventListener('change', refreshActiveView);
+  el('filterEmpleadoHoras').addEventListener('input', refreshActiveView);
   el('reportesFechaDesde').addEventListener('change', () => {
     reportesFechaDesde = el('reportesFechaDesde').value || null;
     recomputeData(); refreshSedeOptions(); renderKpis(); refreshActiveView();
@@ -864,6 +866,7 @@ function renderKpis(){
     '<div class="kpi-card ' + (acumUtilidad < 0 ? 'kpi-neg' : 'kpi-pos') + '"><div class="kpi-label">Utilidad acumulada' + sedeLabel + '</div><div class="kpi-value">' + fmtCOP(acumUtilidad) + '</div></div>';
 }
 function escapeHtmlJs(s){ return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+function removeAccentsJs(s){ return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, ''); }
 
 function viewTiempo(){
   destroyChart('tiempo');
@@ -1270,13 +1273,10 @@ function viewHoras(){
   const scopeSet = new Set(periodsInScope());
   const scopedAll = horasBaseDias().filter(r => scopeSet.has(ventaPeriodKeyFor(r.fecha, gran)));
   const rowsInSede = sedeFilter ? scopedAll.filter(r => r.sedeName === sedeFilter) : scopedAll;
-  const empSel = el('filterEmpleadoHoras');
-  const prevEmp = empSel.value;
   const empleados = Array.from(new Map(rowsInSede.map(r => [r.empleadoId, r.empleadoNombre])).entries());
-  empSel.innerHTML = '<option value="">Todos los empleados</option>' + empleados.map(([id, nombre]) => '<option value="' + id + '">' + nombre + '</option>').join('');
-  if (empleados.some(([id]) => id === prevEmp)) empSel.value = prevEmp;
-  const empleadoFilter = empSel.value;
-  const rows = empleadoFilter ? rowsInSede.filter(r => r.empleadoId === empleadoFilter) : rowsInSede;
+  el('filterEmpleadoHorasList').innerHTML = empleados.map(([, nombre]) => '<option value="' + escapeHtmlJs(nombre) + '">').join('');
+  const empleadoQuery = removeAccentsJs(el('filterEmpleadoHoras').value.trim()).toLowerCase();
+  const rows = empleadoQuery ? rowsInSede.filter(r => removeAccentsJs(r.empleadoNombre || '').toLowerCase().includes(empleadoQuery)) : rowsInSede;
 
   const { lastWeek, alertas } = computeAlertasHoras(scopedAll, sedeFilter);
   const maxF = RAW_HORAS.reduce((m, r) => (!m || r.fecha > m ? r.fecha : m), null);
