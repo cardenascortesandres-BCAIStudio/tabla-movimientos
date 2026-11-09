@@ -959,7 +959,11 @@ function renderReportes() {
 
   const sedeSel = el('reportesSedeFilter');
   const prevSede = sedeSel.value;
-  const allSedeNames = Array.from(new Set([...data.sedeNames, ...(baseVentaDias.map(d => d.sede_name)), ...(baseMovWeeks.map(w => w.sede_name))])).sort();
+  // Incluye también las sedes que SOLO tienen datos de Horas Extras (ej. una
+  // sede sin Balance/Ventas/Mermas en el rango de fechas elegido) — si no,
+  // el selector de sede no las mostraba y no se podía ver su acumulado por
+  // esa sede específica.
+  const allSedeNames = Array.from(new Set([...data.sedeNames, ...(baseVentaDias.map(d => d.sede_name)), ...(baseMovWeeks.map(w => w.sede_name)), ...((horasExtrasAllDias || []).map(r => r.sede_name))])).sort();
   sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + allSedeNames.map(s => `<option>${escapeHtml(s)}</option>`).join('');
   if (allSedeNames.includes(prevSede)) sedeSel.value = prevSede;
   const sedeFilter = sedeSel.value;

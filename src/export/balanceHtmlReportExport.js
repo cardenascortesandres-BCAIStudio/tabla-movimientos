@@ -788,7 +788,11 @@ function refreshSedeOptions(){
   const sedeSel = el('filterSede');
   const prev = sedeSel.value;
   const data = activeSource();
-  const allSedes = Array.from(new Set([...data.sedeNames, ...currentMovData.sedeNames])).sort();
+  // Incluye también las sedes que SOLO tienen datos de Horas Extras (ej. una
+  // sede sin Balance/Ventas/Mermas en el rango de fechas elegido) — si no,
+  // el selector de sede no las mostraba y no se podía filtrar/ver su
+  // acumulado por esa sede.
+  const allSedes = Array.from(new Set([...data.sedeNames, ...currentMovData.sedeNames, ...RAW_HORAS.map(r => r.sedeName)])).sort();
   sedeSel.innerHTML = '<option value="">Todas las sedes</option>' + allSedes.map(s => '<option value="' + s + '">' + s + '</option>').join('');
   if (allSedes.includes(prev)) sedeSel.value = prev;
   const bloqueSel = el('filterBloque');
