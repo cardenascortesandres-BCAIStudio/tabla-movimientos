@@ -73,7 +73,7 @@ const MONTHS = {
   ENE: 1, ENERO: 1, FEB: 2, FEBRERO: 2, MAR: 3, MARZO: 3, ABR: 4, ABRIL: 4, MAY: 5, MAYO: 5,
   JUN: 6, JUNIO: 6, JUL: 7, JULIO: 7, AGO: 8, AGOS: 8, AGOSTO: 8, AGOST: 8,
   SEP: 9, SEPT: 9, SEPTIEMBRE: 9, SEPTEIMBRE: 9, SEPTIEBRE: 9,
-  OCT: 10, OCTUBRE: 10, NOV: 11, NOVIEMBRE: 11, DIC: 12, DICIEMBRE: 12,
+  OCT: 10, OCTUBRE: 10, NOV: 11, NOVIEMBRE: 11, NOVIERMBRE: 11, DIC: 12, DICIEMBRE: 12,
 };
 const MONTH_RE = new RegExp('\\b(' + Object.keys(MONTHS).join('|') + ')\\b', 'i');
 function toISO(y, m, d) {

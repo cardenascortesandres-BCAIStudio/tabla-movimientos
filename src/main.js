@@ -2366,6 +2366,7 @@ function currentAnioMes() {
 
 function renderPresupuestoTable() {
   const { anio, mes } = currentAnioMes();
+  const mesPrefix = `${anio}-${String(mes).padStart(2, '0')}`;
   const sedeNames = Array.from(new Set([
     ...(ventasAllDias || []).map(d => d.sede_name),
     ...(ventasPresupuestos || []).map(p => p.sede_name)
@@ -2373,13 +2374,30 @@ function renderPresupuestoTable() {
   const MESES_LARGO = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   el('presupuestoTableBody').innerHTML = sedeNames.length ? sedeNames.map(sedeName => {
     const existing = (ventasPresupuestos || []).find(p => p.sede_name === sedeName && p.anio === anio && p.mes === mes);
+    const monto = existing ? Number(existing.monto) : 0;
     const uid = 'pres_' + sedeName.replace(/[^a-z0-9]/gi, '_');
+    // Barra gris con el avance del mes en curso contra la meta (a pedido
+    // explícito del usuario: "ponle la barra gris al lado para identificar
+    // como van" — antes esta tabla solo mostraba el input, sin ninguna
+    // señal visual de cumplimiento).
+    const diasDelMes = (ventasAllDias || []).filter(d => d.sede_name === sedeName && String(d.fecha).slice(0, 7) === mesPrefix);
+    const proj = monto > 0 ? computeProjection(diasDelMes, anio, mes) : null;
+    const pct = proj && monto > 0 ? proj.acumulado / monto : null;
+    const pctClamped = pct == null ? 0 : Math.max(0, Math.min(1, pct));
+    const barColor = pct == null ? 'var(--dv-text-muted)' : (pct >= 1 ? 'var(--dv-pos)' : (pct >= 0.7 ? '#d9a500' : 'var(--dv-neg)'));
+    const barHtml = monto > 0
+      ? `<div class="pres-bar-track" title="${fmtCOP(proj ? proj.acumulado : 0)} de ${fmtCOP(monto)} (${pct == null ? '—' : fmtPct(pct)})">
+          <div class="pres-bar-fill" style="width:${(pctClamped * 100).toFixed(1)}%;background:${barColor}"></div>
+        </div>
+        <span class="pres-bar-label">${pct == null ? '—' : fmtPct(pct)}</span>`
+      : '<span class="hint">Sin meta cargada</span>';
     return `<tr>
       <td class="left">${escapeHtml(sedeName)}</td>
       <td><input type="text" inputmode="decimal" id="${uid}" value="${existing ? existing.monto : ''}" placeholder="0" style="width:140px;text-align:right"></td>
+      <td class="left">${barHtml}</td>
       <td><button class="btn-tiny" data-sede="${escapeHtml(sedeName)}" data-uid="${uid}">Guardar</button></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="3" class="left hint">Sin sedes todavía — carga ventas primero.</td></tr>`;
+  }).join('') : `<tr><td colspan="4" class="left hint">Sin sedes todavía — carga ventas primero.</td></tr>`;
   el('presupuestoTableBody').querySelectorAll('button[data-sede]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const monto = parseLocaleNumber(el(btn.dataset.uid).value);
