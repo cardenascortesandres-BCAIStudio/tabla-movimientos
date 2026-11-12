@@ -67,7 +67,7 @@ import * as authClient from './auth/authClient.js';
 import { buildHorasExtrasPlantaReportHtml } from './export/horasExtrasPlantaReportExport.js';
 import {
   aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
-  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, LIMITE_SEMANAL, UMBRAL_ALERTA, diaAnomalias
+  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, periodLabel as horasPeriodLabel, LIMITE_SEMANAL, UMBRAL_ALERTA, diaAnomalias
 } from './horasExtras/horasExtrasDashboardData.js';
 
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
@@ -2610,6 +2610,11 @@ function renderReportesHorasView(sedeFilter, granularity) {
   const rows = empleadoQuery ? rowsInSede.filter(r => removeAccents(r.empleado_nombre || '').toLowerCase().includes(empleadoQuery)) : rowsInSede;
 
   const { lastWeek, alertas } = computeHorasAlertas(scopedAll, sedeFilter);
+  // Rango exacto (no solo el lunes) — a pedido explícito del usuario: "poner
+  // la fecha exacta desde que dia hasta que dia va de acuerdo al filtro" (ver
+  // horasPeriodLabel, que ya arma "semana del DD al DD de mes" a partir del
+  // lunes de la semana).
+  const lastWeekLabel = lastWeek ? horasPeriodLabel(lastWeek, 'week') : null;
   const corte = horasCorteLabel(horasExtrasAllDias);
   const rojos = alertas.filter(a => a.nivel === 'rojo');
   const amarillos = alertas.filter(a => a.nivel === 'amarillo');
@@ -2626,14 +2631,14 @@ function renderReportesHorasView(sedeFilter, granularity) {
     <div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">${new Set(rowsInSede.map(r => r.empleado_id)).size}</div></div>
     <div class="kpi-card ${rojos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🔴 Pasados del límite (${LIMITE_SEMANAL}h/semana)</div><div class="kpi-value">${rojos.length}</div></div>
     <div class="kpi-card ${amarillos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🟡 Por pasarse (≥ ${UMBRAL_ALERTA}h/semana)</div><div class="kpi-value">${amarillos.length}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Más horas extra — ${lastWeek ? 'semana del ' + lastWeek : 'última semana'}</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
+    <div class="kpi-card"><div class="kpi-label">Más horas extra — ${lastWeekLabel || 'última semana'}</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
 
-  el('horasAlertasTitle').textContent = 'Alertas — ' + (lastWeek ? 'semana del ' + lastWeek : 'última semana completa con datos');
+  el('horasAlertasTitle').textContent = 'Alertas — ' + (lastWeekLabel || 'última semana completa con datos');
   el('horasAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
     const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
     return `<tr class="row-click" data-emp="${escapeHtml(a.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
-  }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos'}.</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeekLabel ? 'la ' + lastWeekLabel : 'la última semana con datos'}.</td></tr>`;
 
   // "Acumulado por sede" (cada punto) — a pedido explícito del usuario, para
   // ver de un vistazo el total de horas extra de CADA sede en el alcance de
@@ -2642,15 +2647,21 @@ function renderReportesHorasView(sedeFilter, granularity) {
   // por sede con la granularidad activa) filtrado a los periodos
   // seleccionados en "📅 Fechas" — independiente del filtro de empleado
   // (no aplica a una comparación entre sedes).
-  const sedesAcc = Array.from(cal.bySede.entries())
-    .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
-    .map(([sedeName, points]) => [sedeName, points.filter(p => selectedSet.has(p.periodKey)).reduce((a, p) => a + p.horaExtra, 0)])
-    .sort((a, b) => b[1] - a[1]);
-  if (chartHorasSedes) chartHorasSedes.destroy();
-  chartHorasSedes = new Chart(el('chartHorasSedes').getContext('2d'), {
-    type: 'bar', data: { labels: sedesAcc.map(([s]) => s), datasets: [{ data: sedesAcc.map(([, v]) => v), backgroundColor: chartColors(sedesAcc.map(([, v]) => v), 'reportesView'), borderRadius: 6 }] },
-    options: dashboardChartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], 'reportesView')
-  });
+  // Con una sola sede filtrada esta comparación queda en una sola barra,
+  // repitiendo el mismo número que ya muestra el KPI "Horas extra acumuladas"
+  // de arriba — a pedido explícito del usuario, se esconde en ese caso (solo
+  // aporta algo cuando compara VARIAS sedes, con "Todas las sedes").
+  el('chartHorasSedesWrap').classList.toggle('hidden-block', Boolean(sedeFilter));
+  if (chartHorasSedes) { chartHorasSedes.destroy(); chartHorasSedes = null; }
+  if (!sedeFilter) {
+    const sedesAcc = Array.from(cal.bySede.entries())
+      .map(([sedeName, points]) => [sedeName, points.filter(p => selectedSet.has(p.periodKey)).reduce((a, p) => a + p.horaExtra, 0)])
+      .sort((a, b) => b[1] - a[1]);
+    chartHorasSedes = new Chart(el('chartHorasSedes').getContext('2d'), {
+      type: 'bar', data: { labels: sedesAcc.map(([s]) => s), datasets: [{ data: sedesAcc.map(([, v]) => v), backgroundColor: chartColors(sedesAcc.map(([, v]) => v), 'reportesView'), borderRadius: 6 }] },
+      options: dashboardChartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], 'reportesView')
+    });
+  }
 
   // "En el tiempo": suma de horas extra por periodo, todas las sedes/empleados en el alcance filtrado.
   const sedeData = aggregateHorasBySede(rows, gran);
@@ -2854,6 +2865,7 @@ function renderReportesHorasPlantaView() {
   const rows = empleadoQuery ? rowsInSede.filter(r => removeAccents(r.empleado_nombre || '').toLowerCase().includes(empleadoQuery)) : rowsInSede;
 
   const { lastWeek, alertas } = computeHorasAlertas(scopedAll, sedeFilter);
+  const lastWeekLabel = lastWeek ? horasPeriodLabel(lastWeek, 'week') : null;
   const corte = horasCorteLabel(horasPlantaAllDias);
   const rojos = alertas.filter(a => a.nivel === 'rojo');
   const amarillos = alertas.filter(a => a.nivel === 'amarillo');
@@ -2865,25 +2877,28 @@ function renderReportesHorasPlantaView() {
     <div class="kpi-card"><div class="kpi-label">Empleados con historial</div><div class="kpi-value">${new Set(rowsInSede.map(r => r.empleado_id)).size}</div></div>
     <div class="kpi-card ${rojos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🔴 Pasados del límite (${LIMITE_SEMANAL}h/semana)</div><div class="kpi-value">${rojos.length}</div></div>
     <div class="kpi-card ${amarillos.length ? 'kpi-neg' : 'kpi-pos'}"><div class="kpi-label">🟡 Por pasarse (≥ ${UMBRAL_ALERTA}h/semana)</div><div class="kpi-value">${amarillos.length}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Más horas extra — ${lastWeek ? 'semana del ' + lastWeek : 'última semana'}</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
+    <div class="kpi-card"><div class="kpi-label">Más horas extra — ${lastWeekLabel || 'última semana'}</div><div class="kpi-value" style="font-size:15px">${topEmpleado ? escapeHtml(topEmpleado.nombre) + ' — ' + fmt(topEmpleado.horaExtraSemana) + 'h' : '—'}</div></div>`;
 
-  el('horasPlantaAlertasTitle').textContent = 'Alertas — ' + (lastWeek ? 'semana del ' + lastWeek : 'última semana completa con datos');
+  el('horasPlantaAlertasTitle').textContent = 'Alertas — ' + (lastWeekLabel || 'última semana completa con datos');
   el('horasPlantaAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
     const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
     return `<tr class="row-click" data-emp="${escapeHtml(a.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
-  }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeek ? 'la semana del ' + lastWeek : 'la última semana con datos'}.</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeekLabel ? 'la ' + lastWeekLabel : 'la última semana con datos'}.</td></tr>`;
 
-  // "Acumulado por sede" (cada punto) — mismo criterio que renderReportesHorasView (PDV).
-  const sedesAcc = Array.from(cal.bySede.entries())
-    .filter(([sedeName]) => !sedeFilter || sedeName === sedeFilter)
-    .map(([sedeName, points]) => [sedeName, points.filter(p => selectedSet.has(p.periodKey)).reduce((a, p) => a + p.horaExtra, 0)])
-    .sort((a, b) => b[1] - a[1]);
-  if (chartHorasPlantaSedes) chartHorasPlantaSedes.destroy();
-  chartHorasPlantaSedes = new Chart(el('chartHorasPlantaSedes').getContext('2d'), {
-    type: 'bar', data: { labels: sedesAcc.map(([s]) => s), datasets: [{ data: sedesAcc.map(([, v]) => v), backgroundColor: chartColors(sedesAcc.map(([, v]) => v), 'reportesHorasPlantaView'), borderRadius: 6 }] },
-    options: dashboardChartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], 'reportesHorasPlantaView')
-  });
+  // "Acumulado por sede" (cada punto) — mismo criterio que renderReportesHorasView
+  // (PDV): con una sola sede filtrada repite el KPI de arriba, se esconde.
+  el('chartHorasPlantaSedesWrap').classList.toggle('hidden-block', Boolean(sedeFilter));
+  if (chartHorasPlantaSedes) { chartHorasPlantaSedes.destroy(); chartHorasPlantaSedes = null; }
+  if (!sedeFilter) {
+    const sedesAcc = Array.from(cal.bySede.entries())
+      .map(([sedeName, points]) => [sedeName, points.filter(p => selectedSet.has(p.periodKey)).reduce((a, p) => a + p.horaExtra, 0)])
+      .sort((a, b) => b[1] - a[1]);
+    chartHorasPlantaSedes = new Chart(el('chartHorasPlantaSedes').getContext('2d'), {
+      type: 'bar', data: { labels: sedesAcc.map(([s]) => s), datasets: [{ data: sedesAcc.map(([, v]) => v), backgroundColor: chartColors(sedesAcc.map(([, v]) => v), 'reportesHorasPlantaView'), borderRadius: 6 }] },
+      options: dashboardChartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], 'reportesHorasPlantaView')
+    });
+  }
 
   const sedeData = aggregateHorasBySede(rows, gran);
   const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);
