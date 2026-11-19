@@ -331,6 +331,7 @@ table.dash-table th.left{text-align:left;}
 table.dash-table td{padding:6px 8px;text-align:right;color:var(--dv-text);border-bottom:1px solid var(--dv-divider-soft);}
 table.dash-table td.left{text-align:left;}
 table.dash-table td.code{color:var(--dv-text-muted);font-size:11px;}
+table.dash-table tr.row-total td{font-weight:700;color:var(--dv-text);border-top:2px solid var(--dv-divider);border-bottom:none;}
 
 /* Barra de avance del presupuesto del mes (tabla "Presupuesto del mes por
    sede") — a pedido explícito del usuario: "ponle la barra gris al lado

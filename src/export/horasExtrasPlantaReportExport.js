@@ -94,6 +94,12 @@ ${VIEWER_CSS}
     <tbody id="horasAlertasTableBody"></tbody>
   </table>
   <div id="chartHorasSedesWrap" class="chart-box" style="margin-bottom:16px"><canvas id="chartHorasSedes"></canvas></div>
+  <table class="dtable" id="horasCargoQuincenaTable" style="margin-bottom:16px;">
+    <caption style="text-align:left;margin-bottom:8px;"><span style="font-weight:700;">Por cargo y quincena</span><br><span style="font-weight:400;font-size:12px;color:#888;">Diurna/festiva diurna va al cargo del empleado; nocturna/festiva nocturna va aparte en "Extras Nocturnas" (mismo criterio que usa Gestión Humana al armar el consolidado mensual a mano).</span></caption>
+    <thead><tr><th class="left">Cargo</th><th>1ª quincena</th><th>2ª quincena</th><th>Total</th></tr></thead>
+    <tbody id="horasCargoQuincenaTableBody"></tbody>
+    <tfoot><tr style="font-weight:700;"><td class="left">Total</td><td id="horasCargoQuincenaTotalQ1"></td><td id="horasCargoQuincenaTotalQ2"></td><td id="horasCargoQuincenaTotal"></td></tr></tfoot>
+  </table>
   <div class="chart-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
     <div class="chart-box"><canvas id="chartHorasTiempo"></canvas></div>
     <div class="chart-box"><canvas id="chartHorasRanking"></canvas></div>
@@ -230,6 +236,60 @@ function aggregateHorasBySede(rawHoras, granularity){
   });
   const sedeNames = Array.from(accBySede.keys());
   return { bySede, byPeriod, periodKeysSorted: Array.from(byPeriod.keys()).sort(), sedeNames };
+}
+// "Corte de quincena" + "Por cargo y quincena" — puerto de
+// aggregateHorasByCargoQuincena en src/horasExtras/horasExtrasDashboardData.js.
+function quincenaOfFecha(fecha){
+  const day = new Date(String(fecha).slice(0, 10) + 'T00:00:00Z').getUTCDate();
+  return day <= 15 ? 1 : 2;
+}
+// Puerto de normalizeCargoLabel en src/horasExtras/horasExtrasDashboardData.js
+// — mapeo de cargo crudo -> categoría limpia, decidido junto con el usuario.
+function normCargoKey(cargo){
+  return String(cargo || '').trim().toUpperCase().replace(/\.+$/, '').replace(/-\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const CARGO_LABEL_ALIASES = {
+  'AUXILIAR OPERATIVO CORTADOR': 'Cortadores', 'AUXILIAR OPERATIVO CORTADOR DE CARNES': 'Cortadores', 'AUXILIAR DE CARNES': 'Cortadores',
+  'AUXILIAR OPERATIVO CAJERO': 'Cajeras', 'CAJERA': 'Cajeras', 'CAJERO PUNTO DE VENTAS': 'Cajeras',
+  'COORDINADOR PUNTO DE VENTA': 'Coordinador', 'SUPERVISOR PUNTO DE VENTA': 'Coordinador',
+  'AUXILIAR OPERATIVO MENSAJERO': 'Mensajeros',
+  'AUXILIAR OPERATIVO SALSAMENTARIA': 'Salsamentaria', 'AUXILIAR OPERATIVO SERV GENERALES': 'Servicios Generales',
+  'AUXILIAR OPERATIVO': 'Servicio al Cliente', 'ADMINISTRADOR PUNTO DE VENTA': 'Administrador',
+  'AUXILIAR DE INVENTARIOS': 'Minimarket', 'MERCA IMPULSADOR': 'Merca-Impulsador',
+};
+function normalizeCargoLabel(cargoRaw){
+  if (!cargoRaw) return 'Sin cargo';
+  return CARGO_LABEL_ALIASES[normCargoKey(cargoRaw)] || cargoRaw.trim();
+}
+function aggregateHorasByCargoQuincena(rawHoras, sedeFilter){
+  const rows = sedeFilter ? rawHoras.filter(r => r.sedeName === sedeFilter) : rawHoras;
+  const byCargo = new Map();
+  const addTo = (cargo, q, horas) => {
+    if (!byCargo.has(cargo)) byCargo.set(cargo, { cargo, q1: 0, q2: 0, total: 0 });
+    const acc = byCargo.get(cargo);
+    if (q === 1) acc.q1 += horas; else acc.q2 += horas;
+    acc.total += horas;
+  };
+  rows.forEach(row => {
+    const q = quincenaOfFecha(row.fecha);
+    const diurna = (row.he || 0) + (row.hefd || 0);
+    const nocturna = (row.hen || 0) + (row.hefn || 0);
+    if (diurna > 0) addTo(normalizeCargoLabel(row.cargo), q, diurna);
+    if (nocturna > 0) addTo('Extras Nocturnas', q, nocturna);
+  });
+  const cargos = Array.from(byCargo.values()).sort((a, b) => b.total - a.total);
+  const totalQ1 = cargos.reduce((a, c) => a + c.q1, 0);
+  const totalQ2 = cargos.reduce((a, c) => a + c.q2, 0);
+  return { cargos, totalQ1, totalQ2, total: totalQ1 + totalQ2 };
+}
+function renderHorasCargoQuincenaTable(rows, sedeFilter, ids){
+  const { cargos, totalQ1, totalQ2, total } = aggregateHorasByCargoQuincena(rows, sedeFilter);
+  el(ids.tableBody).innerHTML = cargos.length ? cargos.map(c =>
+    '<tr><td class="left">' + c.cargo + '</td><td>' + fmtNum(c.q1) + '</td><td>' + fmtNum(c.q2) + '</td><td>' + fmtNum(c.total) + '</td></tr>'
+  ).join('') : '<tr><td colspan="4" class="left">Sin horas extra en el alcance elegido.</td></tr>';
+  el(ids.totalQ1).textContent = fmtNum(totalQ1);
+  el(ids.totalQ2).textContent = fmtNum(totalQ2);
+  el(ids.total).textContent = fmtNum(total);
 }
 function lastCompleteWeekHoras(periodKeysSorted, maxFecha){
   if (!maxFecha) return periodKeysSorted[periodKeysSorted.length - 1] || null;
@@ -464,6 +524,10 @@ function viewHoras(){
       options: chartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], null, fmtNum)
     });
   }
+
+  renderHorasCargoQuincenaTable(scopedAll, sedeFilter, {
+    tableBody: 'horasCargoQuincenaTableBody', totalQ1: 'horasCargoQuincenaTotalQ1', totalQ2: 'horasCargoQuincenaTotalQ2', total: 'horasCargoQuincenaTotal'
+  });
 
   const granularity = gran;
   const sedeData = aggregateHorasBySede(rows, granularity);

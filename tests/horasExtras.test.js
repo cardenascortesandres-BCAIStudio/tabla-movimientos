@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseLiquidacionPage } from '../src/core/horasExtrasPdfParse.js';
-import { computeAlertas, diaAnomalias } from '../src/horasExtras/horasExtrasDashboardData.js';
+import { computeAlertas, diaAnomalias, quincenaOfFecha, aggregateHorasByCargoQuincena, normalizeCargoLabel } from '../src/horasExtras/horasExtrasDashboardData.js';
 
 // Header row (y=692) — mismas columnas y X que el PDF real.
 const HEADER = [
@@ -226,5 +226,95 @@ describe('diaAnomalias', () => {
   it('un día normal (1 turno, sin extra nocturna) no marca ninguna anomalía', () => {
     const r = { entrada1: '08:00', salida1: '17:00', hen: 0, hefn: 0 };
     expect(diaAnomalias(r)).toEqual({ turnoDoble: false, horaNocturna: false, alguna: false });
+  });
+});
+
+// A pedido explícito del usuario, tras revisar el consolidado mensual real
+// que Gestión Humana arma a mano ("Horas Extras Octubre 2026.xlsx"): la
+// plataforma reproduce ese mismo corte (1ª quincena = días 1-15, 2ª = 16 en
+// adelante) y el mismo criterio de separar la hora NOCTURNA del cargo del
+// empleado hacia una fila aparte "Extras Nocturnas".
+describe('quincenaOfFecha', () => {
+  it('día 15 cae en la 1ª quincena, día 16 en la 2ª', () => {
+    expect(quincenaOfFecha('2026-10-15')).toBe(1);
+    expect(quincenaOfFecha('2026-10-16')).toBe(2);
+  });
+  it('el último día del mes cae en la 2ª quincena sin importar si el mes tiene 28, 30 o 31 días', () => {
+    expect(quincenaOfFecha('2026-02-28')).toBe(2);
+    expect(quincenaOfFecha('2026-04-30')).toBe(2);
+    expect(quincenaOfFecha('2026-01-31')).toBe(2);
+  });
+});
+
+// Mapeo decidido junto con el usuario tras revisar los 20 valores reales de
+// `cargo` que existen hoy en horas_extra_dias (ver chat: variantes del mismo
+// puesto escritas distinto, más 5 cargos ambiguos confirmados uno por uno).
+describe('normalizeCargoLabel', () => {
+  it('junta las variantes con/sin guion y "DE CARNES" bajo Cortadores', () => {
+    expect(normalizeCargoLabel('AUXILIAR OPERATIVO- CORTADOR')).toBe('Cortadores');
+    expect(normalizeCargoLabel('AUXILIAR OPERATIVO CORTADOR')).toBe('Cortadores');
+    expect(normalizeCargoLabel('AUXILIAR OPERATIVO- CORTADOR DE CARNES')).toBe('Cortadores');
+    expect(normalizeCargoLabel('AUXILIAR DE CARNES')).toBe('Cortadores');
+  });
+  it('junta las variantes de cajero/a bajo Cajeras', () => {
+    expect(normalizeCargoLabel('CAJERA')).toBe('Cajeras');
+    expect(normalizeCargoLabel('AUXILIAR OPERATIVO- CAJERO')).toBe('Cajeras');
+    expect(normalizeCargoLabel('AUXILIAR OPERATIVO CAJERO')).toBe('Cajeras');
+    expect(normalizeCargoLabel('CAJERO PUNTO DE VENTAS')).toBe('Cajeras');
+  });
+  it('ignora el punto final de "COORDINADOR PUNTO DE VENTA." y junta Supervisor con Coordinador', () => {
+    expect(normalizeCargoLabel('COORDINADOR PUNTO DE VENTA')).toBe('Coordinador');
+    expect(normalizeCargoLabel('COORDINADOR PUNTO DE VENTA.')).toBe('Coordinador');
+    expect(normalizeCargoLabel('SUPERVISOR PUNTO DE VENTA')).toBe('Coordinador');
+  });
+  it('cargos ambiguos confirmados con el usuario: Administrador y Merca-Impulsador quedan en su propia categoría, Aux. Operativo genérico va a Servicio al Cliente, Aux. de Inventarios va a Minimarket', () => {
+    expect(normalizeCargoLabel('ADMINISTRADOR PUNTO DE VENTA')).toBe('Administrador');
+    expect(normalizeCargoLabel('MERCA-IMPULSADOR')).toBe('Merca-Impulsador');
+    expect(normalizeCargoLabel('AUXILIAR OPERATIVO')).toBe('Servicio al Cliente');
+    expect(normalizeCargoLabel('AUXILIAR DE INVENTARIOS')).toBe('Minimarket');
+  });
+  it('un cargo sin alias conocido se deja tal cual (no desaparece ni se fuerza a otra categoría)', () => {
+    expect(normalizeCargoLabel('JEFE DE BODEGA')).toBe('JEFE DE BODEGA');
+  });
+  it('sin cargo (vacío/null) cae en "Sin cargo"', () => {
+    expect(normalizeCargoLabel('')).toBe('Sin cargo');
+    expect(normalizeCargoLabel(null)).toBe('Sin cargo');
+  });
+});
+
+describe('aggregateHorasByCargoQuincena', () => {
+  function diaRow(cargo, fecha, { he = 0, hen = 0, hefd = 0, hefn = 0, sedeName = 'Alameda' } = {}) {
+    return { sede_name: sedeName, empleado_id: cargo + fecha, empleado_nombre: 'X', cargo, fecha, he, hen, hefd, hefn };
+  }
+
+  it('suma diurna+festiva diurna al cargo del empleado, partido por quincena', () => {
+    const rows = [
+      diaRow('Cajeras', '2026-10-05', { he: 2 }),
+      diaRow('Cajeras', '2026-10-20', { hefd: 3 }),
+    ];
+    const { cargos, totalQ1, totalQ2, total } = aggregateHorasByCargoQuincena(rows);
+    expect(cargos).toEqual([{ cargo: 'Cajeras', q1: 2, q2: 3, total: 5 }]);
+    expect(totalQ1).toBe(2); expect(totalQ2).toBe(3); expect(total).toBe(5);
+  });
+
+  it('lleva nocturna+festiva nocturna a "Extras Nocturnas", NUNCA al cargo real (mismo criterio que el consolidado de Gestión Humana)', () => {
+    const rows = [diaRow('Mensajeros', '2026-10-03', { he: 1, hen: 4, hefn: 1 })];
+    const { cargos } = aggregateHorasByCargoQuincena(rows);
+    expect(cargos).toEqual(expect.arrayContaining([
+      { cargo: 'Mensajeros', q1: 1, q2: 0, total: 1 },
+      { cargo: 'Extras Nocturnas', q1: 5, q2: 0, total: 5 },
+    ]));
+    expect(cargos.length).toBe(2);
+  });
+
+  it('respeta el filtro de sede', () => {
+    const rows = [diaRow('Cajeras', '2026-10-05', { he: 2, sedeName: 'Alameda' }), diaRow('Cajeras', '2026-10-05', { he: 9, sedeName: 'Casona' })];
+    const { total } = aggregateHorasByCargoQuincena(rows, 'Alameda');
+    expect(total).toBe(2);
+  });
+
+  it('no incluye un cargo sin ninguna hora extra', () => {
+    const rows = [diaRow('Cajeras', '2026-10-05', { he: 0, hen: 0, hefd: 0, hefn: 0 })];
+    expect(aggregateHorasByCargoQuincena(rows).cargos).toEqual([]);
   });
 });

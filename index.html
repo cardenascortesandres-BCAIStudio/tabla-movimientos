@@ -505,6 +505,18 @@
             <div class="chart-box" style="grid-column:1/-1"><canvas id="chartHorasSedes"></canvas></div>
           </div>
 
+          <div class="dash-table-wrap">
+            <div class="dash-table-title" id="horasCargoQuincenaTitle">Por cargo y quincena</div>
+            <p class="hint">Diurna/festiva diurna va al cargo del empleado; nocturna/festiva nocturna va aparte en "Extras Nocturnas" (mismo criterio que usa Gestión Humana al armar el consolidado mensual a mano).</p>
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead><tr><th class="left">Cargo</th><th>1ª quincena</th><th>2ª quincena</th><th>Total</th></tr></thead>
+                <tbody id="horasCargoQuincenaTableBody"></tbody>
+                <tfoot><tr class="row-total"><td class="left">Total</td><td id="horasCargoQuincenaTotalQ1"></td><td id="horasCargoQuincenaTotalQ2"></td><td id="horasCargoQuincenaTotal"></td></tr></tfoot>
+              </table>
+            </div>
+          </div>
+
           <div class="dash-charts">
             <div class="chart-box"><canvas id="chartHorasTiempo"></canvas></div>
             <div class="chart-box"><canvas id="chartHorasRanking"></canvas></div>
@@ -659,6 +671,18 @@
 
         <div class="dash-charts" id="chartHorasPlantaSedesWrap">
           <div class="chart-box" style="grid-column:1/-1"><canvas id="chartHorasPlantaSedes"></canvas></div>
+        </div>
+
+        <div class="dash-table-wrap">
+          <div class="dash-table-title" id="horasPlantaCargoQuincenaTitle">Por cargo y quincena</div>
+          <p class="hint">Diurna/festiva diurna va al cargo del empleado; nocturna/festiva nocturna va aparte en "Extras Nocturnas" (mismo criterio que usa Gestión Humana al armar el consolidado mensual a mano).</p>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Cargo</th><th>1ª quincena</th><th>2ª quincena</th><th>Total</th></tr></thead>
+              <tbody id="horasPlantaCargoQuincenaTableBody"></tbody>
+              <tfoot><tr class="row-total"><td class="left">Total</td><td id="horasPlantaCargoQuincenaTotalQ1"></td><td id="horasPlantaCargoQuincenaTotalQ2"></td><td id="horasPlantaCargoQuincenaTotal"></td></tr></tfoot>
+            </table>
+          </div>
         </div>
 
         <div class="dash-charts">

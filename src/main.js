@@ -67,7 +67,7 @@ import * as authClient from './auth/authClient.js';
 import { buildHorasExtrasPlantaReportHtml } from './export/horasExtrasPlantaReportExport.js';
 import {
   aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
-  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, periodLabel as horasPeriodLabel, LIMITE_SEMANAL, UMBRAL_ALERTA, diaAnomalias
+  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, periodLabel as horasPeriodLabel, LIMITE_SEMANAL, UMBRAL_ALERTA, diaAnomalias, aggregateHorasByCargoQuincena
 } from './horasExtras/horasExtrasDashboardData.js';
 
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
@@ -2570,6 +2570,18 @@ function horasCorteLabel(rows) {
   const d = new Date(max + 'T00:00:00Z');
   return d.getUTCDate() + ' de ' + MESES[d.getUTCMonth()] + ' de ' + d.getUTCFullYear();
 }
+// "Por cargo y quincena" — reproduce el consolidado mensual que Gestión
+// Humana arma a mano (ver aggregateHorasByCargoQuincena), reusado por PDV y
+// Planta (mismos ids con prefijo distinto en el HTML).
+function renderHorasCargoQuincenaTable(rows, sedeFilter, ids) {
+  const { cargos, totalQ1, totalQ2, total } = aggregateHorasByCargoQuincena(rows, sedeFilter);
+  el(ids.tableBody).innerHTML = cargos.length ? cargos.map(c =>
+    `<tr><td class="left">${escapeHtml(c.cargo)}</td><td>${fmt(c.q1)}</td><td>${fmt(c.q2)}</td><td>${fmt(c.total)}</td></tr>`
+  ).join('') : '<tr><td colspan="4" class="left hint">Sin horas extra en el alcance elegido.</td></tr>';
+  el(ids.totalQ1).textContent = fmt(totalQ1);
+  el(ids.totalQ2).textContent = fmt(totalQ2);
+  el(ids.total).textContent = fmt(total);
+}
 function renderReportesHorasView(sedeFilter, granularity) {
   // Horas Extras es el ÚLTIMO dato en cargar (Balance -> Ventas -> Mermas ->
   // Horas, en ese orden, ver loadReportesData) — sin este aviso, cambiar a
@@ -2662,6 +2674,10 @@ function renderReportesHorasView(sedeFilter, granularity) {
       options: dashboardChartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], 'reportesView')
     });
   }
+
+  renderHorasCargoQuincenaTable(scopedAll, sedeFilter, {
+    tableBody: 'horasCargoQuincenaTableBody', totalQ1: 'horasCargoQuincenaTotalQ1', totalQ2: 'horasCargoQuincenaTotalQ2', total: 'horasCargoQuincenaTotal'
+  });
 
   // "En el tiempo": suma de horas extra por periodo, todas las sedes/empleados en el alcance filtrado.
   const sedeData = aggregateHorasBySede(rows, gran);
@@ -2899,6 +2915,10 @@ function renderReportesHorasPlantaView() {
       options: dashboardChartOptions(['Horas extra acumuladas por sede', 'Informe con corte a ' + corte], 'reportesHorasPlantaView')
     });
   }
+
+  renderHorasCargoQuincenaTable(scopedAll, sedeFilter, {
+    tableBody: 'horasPlantaCargoQuincenaTableBody', totalQ1: 'horasPlantaCargoQuincenaTotalQ1', totalQ2: 'horasPlantaCargoQuincenaTotalQ2', total: 'horasPlantaCargoQuincenaTotal'
+  });
 
   const sedeData = aggregateHorasBySede(rows, gran);
   const tiempoLabels = sedeData.periodKeysSorted.map(k => (sedeData.byPeriod.get(k) || [])[0]?.periodLabel || k);

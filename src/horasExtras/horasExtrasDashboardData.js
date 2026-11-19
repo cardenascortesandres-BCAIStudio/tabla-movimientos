@@ -154,6 +154,80 @@ export function computeAlertas(diaRows, sedeFilter) {
   return { lastWeek, alertas };
 }
 
+// "Corte de quincena" — 1ª quincena = días 1 al 15, 2ª = 16 al cierre del
+// mes. Gestión Humana parte el mes así para el consolidado mensual (no
+// depende de cómo vengan repartidos los PDF: un mismo PDF puede cruzar la
+// mitad del mes sin problema, porque esto se calcula por el día exacto de
+// cada fila ya guardada, no por el rango del archivo de origen).
+export function quincenaOfFecha(fecha) {
+  const day = new Date(String(fecha).slice(0, 10) + 'T00:00:00Z').getUTCDate();
+  return day <= 15 ? 1 : 2;
+}
+
+// El cargo crudo (campo de texto libre del sistema de nómina/PDF de RH) trae
+// variantes del mismo puesto escritas distinto — con/sin guion, con/sin "DE
+// CARNES", un punto de más, etc. — confirmado revisando los 20 valores
+// reales que existen hoy en horas_extra_dias. Se normaliza (mayúsculas, sin
+// puntos finales, guion -> espacio, espacios repetidos colapsados) y se
+// mapea a las categorías limpias que ya usa Gestión Humana en su consolidado
+// mensual a mano, decididas junto con el usuario cargo por cargo (los 5
+// ambiguos sin un cargo crudo obvio se confirmaron uno por uno).
+function normCargoKey(cargo) {
+  return String(cargo || '').trim().toUpperCase().replace(/\.+$/, '').replace(/-\s*/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const CARGO_LABEL_ALIASES = {
+  'AUXILIAR OPERATIVO CORTADOR': 'Cortadores',
+  'AUXILIAR OPERATIVO CORTADOR DE CARNES': 'Cortadores',
+  'AUXILIAR DE CARNES': 'Cortadores',
+  'AUXILIAR OPERATIVO CAJERO': 'Cajeras',
+  'CAJERA': 'Cajeras',
+  'CAJERO PUNTO DE VENTAS': 'Cajeras',
+  'COORDINADOR PUNTO DE VENTA': 'Coordinador',
+  'SUPERVISOR PUNTO DE VENTA': 'Coordinador',
+  'AUXILIAR OPERATIVO MENSAJERO': 'Mensajeros',
+  'AUXILIAR OPERATIVO SALSAMENTARIA': 'Salsamentaria',
+  'AUXILIAR OPERATIVO SERV GENERALES': 'Servicios Generales',
+  'AUXILIAR OPERATIVO': 'Servicio al Cliente',
+  'ADMINISTRADOR PUNTO DE VENTA': 'Administrador',
+  'AUXILIAR DE INVENTARIOS': 'Minimarket',
+  'MERCA IMPULSADOR': 'Merca-Impulsador',
+};
+export function normalizeCargoLabel(cargoRaw) {
+  if (!cargoRaw) return 'Sin cargo';
+  const key = normCargoKey(cargoRaw);
+  return CARGO_LABEL_ALIASES[key] || cargoRaw.trim();
+}
+
+// "Por cargo y quincena" — reproduce el consolidado mensual que Gestión
+// Humana arma a mano (ver scripts/analisis, archivo real "Horas Extras
+// Octubre 2026.xlsx"): horas extra por Cargo, partidas en 1ª/2ª quincena.
+// Mismo criterio que usan a mano: la hora NOCTURNA (hen/hefn) NO se suma al
+// cargo del empleado, se lleva aparte a una fila "Extras Nocturnas" (igual
+// para todos los cargos) — confirmado contra el archivo real: la suma de
+// todas las filas de un punto, incluida "Extras Nocturnas", da exacto el
+// gran total de esa sede, sin doble conteo.
+export function aggregateHorasByCargoQuincena(diaRows, sedeFilter) {
+  const rows = sedeFilter ? diaRows.filter((r) => r.sede_name === sedeFilter) : diaRows;
+  const byCargo = new Map(); // cargo -> { cargo, q1, q2, total }
+  const addTo = (cargo, q, horas) => {
+    if (!byCargo.has(cargo)) byCargo.set(cargo, { cargo, q1: 0, q2: 0, total: 0 });
+    const acc = byCargo.get(cargo);
+    if (q === 1) acc.q1 += horas; else acc.q2 += horas;
+    acc.total += horas;
+  };
+  rows.forEach((row) => {
+    const q = quincenaOfFecha(row.fecha);
+    const diurna = (Number(row.he) || 0) + (Number(row.hefd) || 0);
+    const nocturna = (Number(row.hen) || 0) + (Number(row.hefn) || 0);
+    if (diurna > 0) addTo(normalizeCargoLabel(row.cargo), q, diurna);
+    if (nocturna > 0) addTo('Extras Nocturnas', q, nocturna);
+  });
+  const cargos = Array.from(byCargo.values()).sort((a, b) => b.total - a.total);
+  const totalQ1 = cargos.reduce((a, c) => a + c.q1, 0);
+  const totalQ2 = cargos.reduce((a, c) => a + c.q2, 0);
+  return { cargos, totalQ1, totalQ2, total: totalQ1 + totalQ2 };
+}
+
 export function findTopEmpleados(diaRows, n = 10) {
   const acc = new Map();
   diaRows.forEach((row) => {
