@@ -154,6 +154,50 @@ export function computeAlertas(diaRows, sedeFilter) {
   return { lastWeek, alertas };
 }
 
+// Racha de semanas SEGUIDAS en alerta (amarillo o rojo), terminando en la
+// última semana completa — a pedido explícito del usuario: "necesito saber
+// si un colaborador es CONSTANTE haciendo horas extra", no solo si tuvo un
+// pico puntual esta semana (eso ya lo cubre computeAlertas). Se cuenta hacia
+// atrás semana calendario a calendario (no solo filas consecutivas del
+// arreglo): si falta una semana en el medio (sin datos esa semana para ese
+// empleado), la racha se corta ahí — una racha real tiene que ser
+// ininterrumpida en el calendario, no solo "las últimas N filas que haya".
+export const RACHA_CONSTANTE_MINIMA = 3;
+export function computeRachasHorasExtra(diaRows, sedeFilter) {
+  const rows = sedeFilter ? diaRows.filter((r) => r.sede_name === sedeFilter) : diaRows;
+  const data = aggregateByEmpleado(rows, 'week');
+  const maxFecha = rows.reduce((max, r) => { const f = String(r.fecha).slice(0, 10); return !max || f > max ? f : max; }, null);
+  const lastWeek = lastCompleteWeek(data.periodKeysSorted, maxFecha);
+  if (!lastWeek) return { lastWeek: null, rachas: [] };
+
+  const rachas = [];
+  data.byEmpleado.forEach((entry, empleadoId) => {
+    const byKey = new Map(entry.points.map((p) => [p.periodKey, p]));
+    let racha = 0;
+    let totalHoras = 0;
+    let cursor = lastWeek;
+    while (byKey.has(cursor)) {
+      const point = byKey.get(cursor);
+      if (evaluarAlerta(point.horaExtra) === 'verde') break;
+      racha += 1;
+      totalHoras += point.horaExtra;
+      const prev = new Date(cursor + 'T00:00:00Z');
+      prev.setUTCDate(prev.getUTCDate() - 7);
+      cursor = prev.toISOString().slice(0, 10);
+    }
+    if (racha > 0) {
+      const ultimaSemana = byKey.get(lastWeek);
+      rachas.push({
+        empleadoId, nombre: entry.nombre, sedeName: entry.sedeName, cargo: entry.cargo,
+        racha, horaExtraUltimaSemana: ultimaSemana.horaExtra, nivelUltimaSemana: evaluarAlerta(ultimaSemana.horaExtra),
+        promedioHoraExtra: totalHoras / racha,
+      });
+    }
+  });
+  rachas.sort((a, b) => b.racha - a.racha || b.horaExtraUltimaSemana - a.horaExtraUltimaSemana);
+  return { lastWeek, rachas };
+}
+
 // "Corte de quincena" — 1ª quincena = días 1 al 15, 2ª = 16 al cierre del
 // mes. Gestión Humana parte el mes así para el consolidado mensual (no
 // depende de cómo vengan repartidos los PDF: un mismo PDF puede cruzar la

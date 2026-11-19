@@ -67,7 +67,7 @@ import * as authClient from './auth/authClient.js';
 import { buildHorasExtrasPlantaReportHtml } from './export/horasExtrasPlantaReportExport.js';
 import {
   aggregateByEmpleado as aggregateHorasByEmpleado, aggregateBySede as aggregateHorasBySede,
-  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, periodLabel as horasPeriodLabel, LIMITE_SEMANAL, UMBRAL_ALERTA, diaAnomalias, aggregateHorasByCargoQuincena
+  computeAlertas as computeHorasAlertas, sumDesglose, TIPOS_HORA_EXTRA, TIPOS_HORA_OTROS, findTopEmpleados, horaExtraDelDia, periodKeyFor as horasPeriodKeyFor, periodLabel as horasPeriodLabel, LIMITE_SEMANAL, UMBRAL_ALERTA, diaAnomalias, aggregateHorasByCargoQuincena, computeRachasHorasExtra, RACHA_CONSTANTE_MINIMA
 } from './horasExtras/horasExtrasDashboardData.js';
 
 const catalogInfo = buildCatalogIndex(MASTER_CATALOG);
@@ -2582,6 +2582,24 @@ function renderHorasCargoQuincenaTable(rows, sedeFilter, ids) {
   el(ids.totalQ2).textContent = fmt(totalQ2);
   el(ids.total).textContent = fmt(total);
 }
+// "🔁 Constantes" — a pedido explícito del usuario ("necesito saber si un
+// colaborador es CONSTANTE haciendo horas extra, no sé cómo hacerlo"):
+// cuántas semanas SEGUIDAS lleva cada persona en alerta (ver
+// computeRachasHorasExtra), para distinguir un patrón de un pico puntual —
+// reusado por PDV y Planta.
+function renderHorasRachasTable(rows, sedeFilter, tableBodyId) {
+  // Una sola semana en alerta ya se ve en "Alertas" de arriba — acá solo
+  // interesa el patrón (2+ semanas seguidas).
+  const rachas = computeRachasHorasExtra(rows, sedeFilter).rachas.filter(r => r.racha >= 2);
+  el(tableBodyId).innerHTML = rachas.length ? rachas.map(r => {
+    const cls = r.racha >= RACHA_CONSTANTE_MINIMA ? 'diff-neg' : '';
+    const badge = r.racha >= RACHA_CONSTANTE_MINIMA ? ' <span class="badge-anomalia badge-doble">🔁 Constante</span>' : '';
+    return `<tr class="row-click" data-emp="${escapeHtml(r.empleadoId)}" title="Ver el detalle de esta persona">
+      <td class="left">${escapeHtml(r.nombre)}</td><td class="left">${escapeHtml(r.sedeName)}</td><td class="left">${escapeHtml(r.cargo || '—')}</td>
+      <td class="${cls}">${r.racha}${badge}</td><td class="${r.nivelUltimaSemana === 'rojo' ? 'diff-neg' : ''}">${fmt(r.horaExtraUltimaSemana)}</td><td>${fmt(r.promedioHoraExtra)}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" class="left hint">Nadie lleva 2+ semanas seguidas en alerta.</td></tr>`;
+}
 function renderReportesHorasView(sedeFilter, granularity) {
   // Horas Extras es el ÚLTIMO dato en cargar (Balance -> Ventas -> Mermas ->
   // Horas, en ese orden, ver loadReportesData) — sin este aviso, cambiar a
@@ -2651,6 +2669,8 @@ function renderReportesHorasView(sedeFilter, granularity) {
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
     return `<tr class="row-click" data-emp="${escapeHtml(a.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
   }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeekLabel ? 'la ' + lastWeekLabel : 'la última semana con datos'}.</td></tr>`;
+
+  renderHorasRachasTable(scopedAll, sedeFilter, 'horasRachasTableBody');
 
   // "Acumulado por sede" (cada punto) — a pedido explícito del usuario, para
   // ver de un vistazo el total de horas extra de CADA sede en el alcance de
@@ -2901,6 +2921,8 @@ function renderReportesHorasPlantaView() {
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
     return `<tr class="row-click" data-emp="${escapeHtml(a.empleadoId)}" title="Ver el detalle de esta persona"><td class="left">${escapeHtml(a.nombre)}</td><td class="left">${escapeHtml(a.sedeName)}</td><td class="left">${escapeHtml(a.cargo || '—')}</td><td class="${cls}">${fmt(a.horaExtraSemana)}</td><td>${icon}</td></tr>`;
   }).join('') || `<tr><td colspan="5" class="left hint">Nadie en alerta en ${lastWeekLabel ? 'la ' + lastWeekLabel : 'la última semana con datos'}.</td></tr>`;
+
+  renderHorasRachasTable(scopedAll, sedeFilter, 'horasPlantaRachasTableBody');
 
   // "Acumulado por sede" (cada punto) — mismo criterio que renderReportesHorasView
   // (PDV): con una sola sede filtrada repite el KPI de arriba, se esconde.
@@ -3376,7 +3398,7 @@ el('backFromHorasExtrasBtn').addEventListener('click', () => switchFlow('choice'
 wireMultiFileDropzone('horasDropzone', 'horasFileInput', horasUploader.handleFiles);
 el('horasSaveBtn').addEventListener('click', horasUploader.saveAll);
 el('horasReportesEmpleadoFilter').addEventListener('input', renderReportes);
-for (const id of ['horasAlertasTableBody', 'horasReportesTableBody']) {
+for (const id of ['horasAlertasTableBody', 'horasRachasTableBody', 'horasReportesTableBody']) {
   el(id).addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-emp]');
     if (!tr) return;
@@ -3404,7 +3426,7 @@ el('horasPlantaFechaLimpiarBtn').addEventListener('click', () => {
 el('horasPlantaDownloadBtn').addEventListener('click', downloadHorasPlantaReport);
 el('gestionHDownloadBtn').addEventListener('click', downloadGestionHReport);
 initHorasPlantaPeriodPopover();
-for (const id of ['horasPlantaAlertasTableBody', 'horasPlantaReportesTableBody']) {
+for (const id of ['horasPlantaAlertasTableBody', 'horasPlantaRachasTableBody', 'horasPlantaReportesTableBody']) {
   el(id).addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-emp]');
     if (!tr) return;

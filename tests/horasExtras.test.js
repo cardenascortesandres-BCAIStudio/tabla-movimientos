@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { parseLiquidacionPage } from '../src/core/horasExtrasPdfParse.js';
-import { computeAlertas, diaAnomalias, quincenaOfFecha, aggregateHorasByCargoQuincena, normalizeCargoLabel } from '../src/horasExtras/horasExtrasDashboardData.js';
+import { computeAlertas, diaAnomalias, quincenaOfFecha, aggregateHorasByCargoQuincena, normalizeCargoLabel, computeRachasHorasExtra } from '../src/horasExtras/horasExtrasDashboardData.js';
 
 // Header row (y=692) — mismas columnas y X que el PDF real.
 const HEADER = [
@@ -206,6 +206,68 @@ describe('computeAlertas', () => {
     expect(lastWeek).toBe('2026-09-14');
     expect(alertas[0].nivel).toBe('rojo');
     expect(alertas[0].horaExtraSemana).toBe(14);
+  });
+});
+
+// A pedido explícito del usuario: "necesito saber si un colaborador es
+// CONSTANTE haciendo horas extra" — distinto de computeAlertas (que solo ve
+// la última semana): cuenta cuántas semanas SEGUIDAS lleva en alerta.
+describe('computeRachasHorasExtra', () => {
+  function diaRow(empleadoId, fecha, he) {
+    return { sede_name: 'Alameda', empleado_id: empleadoId, empleado_nombre: 'EMPLEADO ' + empleadoId, cargo: 'X', fecha, he, hen: 0, hefd: 0, hefn: 0, total: 8 };
+  }
+  // Lunes de cada semana: 14 ago, 21 ago, 28 ago, 04 sep, 11 sep (todas completas,
+  // la última semana con datos cierra el 2026-09-13, un domingo).
+  it('cuenta semanas seguidas en alerta (amarillo o rojo), terminando en la última semana completa', () => {
+    const rows = [
+      diaRow('1', '2026-08-14', 11), // amarillo
+      diaRow('1', '2026-08-21', 13), // rojo
+      diaRow('1', '2026-08-28', 10), // amarillo
+      diaRow('1', '2026-09-04', 2),  // verde -> corta la racha
+      diaRow('1', '2026-09-11', 12), // rojo (racha nueva, empieza acá)
+    ];
+    const { lastWeek, rachas } = computeRachasHorasExtra(rows);
+    // La semana del 2026-09-07 (que contiene la fila del 09-11) no cierra
+    // dentro de los datos cargados (cierra el 09-13, después del máximo
+    // 09-11) — lastCompleteWeek cae en la semana anterior, 2026-08-31, que
+    // fue verde (2h) -> racha 0, aunque las 3 semanas previas sí estuvieran
+    // en alerta: la racha SIEMPRE termina en la última semana completa, no
+    // busca hacia atrás la mejor racha histórica.
+    expect(lastWeek).toBe('2026-08-31');
+    expect(rachas).toEqual([]);
+  });
+
+  it('con una racha vigente de 3+ semanas la reporta completa, incluyendo el promedio', () => {
+    const rows = [
+      diaRow('1', '2026-08-10', 11), diaRow('1', '2026-08-17', 13), diaRow('1', '2026-08-24', 10),
+      // Un día en el domingo de cierre (2026-08-30) para que esa semana
+      // cuente como COMPLETA dentro del rango cargado.
+      diaRow('1', '2026-08-30', 0),
+    ];
+    const { rachas } = computeRachasHorasExtra(rows);
+    expect(rachas).toHaveLength(1);
+    expect(rachas[0]).toMatchObject({ empleadoId: '1', racha: 3, horaExtraUltimaSemana: 10, nivelUltimaSemana: 'amarillo' });
+    expect(rachas[0].promedioHoraExtra).toBeCloseTo((11 + 13 + 10) / 3, 5);
+  });
+
+  it('una sola semana en alerta sin la anterior no cuenta como racha (gap corta la cadena)', () => {
+    const rows = [
+      diaRow('1', '2026-08-03', 11), // semana suelta, en alerta
+      diaRow('1', '2026-08-17', 2),  // hueco en el medio (2026-08-10 sin datos)
+      diaRow('1', '2026-08-24', 12), // en alerta, pero solo 1 semana seguida (2026-08-17 fue verde)
+      diaRow('1', '2026-08-30', 0),  // domingo de cierre, para que la semana del 08-24 cuente como completa
+    ];
+    const { rachas } = computeRachasHorasExtra(rows);
+    expect(rachas).toEqual([{ empleadoId: '1', nombre: 'EMPLEADO 1', sedeName: 'Alameda', cargo: 'X', racha: 1, horaExtraUltimaSemana: 12, nivelUltimaSemana: 'amarillo', promedioHoraExtra: 12 }]);
+  });
+
+  it('respeta el filtro de sede', () => {
+    const rows = [
+      { ...diaRow('1', '2026-08-10', 12), sede_name: 'Alameda' },
+      { ...diaRow('2', '2026-08-10', 12), sede_name: 'Casona' },
+    ];
+    const { rachas } = computeRachasHorasExtra(rows, 'Alameda');
+    expect(rachas.map((r) => r.empleadoId)).toEqual(['1']);
   });
 });
 

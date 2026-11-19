@@ -188,6 +188,11 @@ ${VIEWER_CSS}
       <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
       <tbody id="horasAlertasTableBody"></tbody>
     </table>
+    <table class="dtable" id="horasRachasTable" style="margin-bottom:16px;">
+      <caption style="text-align:left;margin-bottom:8px;"><span style="font-weight:700;">🔁 Constantes — en alerta varias semanas seguidas</span><br><span style="font-weight:400;font-size:12px;color:#888;">A diferencia de "Alertas" (solo la última semana), esto cuenta cuántas semanas SEGUIDAS lleva cada persona por encima del umbral (≥10h/semana).</span></caption>
+      <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Semanas seguidas</th><th>Última semana</th><th>Promedio semanal</th></tr></thead>
+      <tbody id="horasRachasTableBody"></tbody>
+    </table>
     <div id="chartHorasSedesWrap" class="chart-box" style="margin-bottom:16px"><canvas id="chartHorasSedes"></canvas></div>
     <table class="dtable" id="horasCargoQuincenaTable" style="margin-bottom:16px;">
       <caption style="text-align:left;margin-bottom:8px;"><span style="font-weight:700;">Por cargo y quincena</span><br><span style="font-weight:400;font-size:12px;color:#888;">Diurna/festiva diurna va al cargo del empleado; nocturna/festiva nocturna va aparte en "Extras Nocturnas" (mismo criterio que usa Gestión Humana al armar el consolidado mensual a mano).</span></caption>
@@ -594,6 +599,50 @@ function computeAlertasHoras(rawHoras, sedeFilter){
     return { ...entry, horaExtraSemana: horaExtra, nivel: evaluarAlertaHoras(horaExtra) };
   }).sort((a, b) => b.horaExtraSemana - a.horaExtraSemana);
   return { lastWeek, alertas };
+}
+// "🔁 Constantes" — puerto de computeRachasHorasExtra en
+// src/horasExtras/horasExtrasDashboardData.js (ver ese archivo para el
+// porqué: cuántas semanas SEGUIDAS lleva cada persona en alerta, no solo la
+// última semana).
+const RACHA_CONSTANTE_MINIMA = 3;
+function computeRachasHorasExtra(rawHoras, sedeFilter){
+  const rows = sedeFilter ? rawHoras.filter(r => r.sedeName === sedeFilter) : rawHoras;
+  const data = aggregateHorasByEmpleado(rows, 'week');
+  const maxFecha = rows.reduce((max, r) => (!max || r.fecha > max ? r.fecha : max), null);
+  const lastWeek = lastCompleteWeekHoras(data.periodKeysSorted, maxFecha);
+  if (!lastWeek) return { lastWeek: null, rachas: [] };
+  const rachas = [];
+  data.byEmpleado.forEach(entry => {
+    const byKey = new Map(entry.points.map(p => [p.periodKey, p]));
+    let racha = 0, totalHoras = 0, cursor = lastWeek;
+    while (byKey.has(cursor)) {
+      const point = byKey.get(cursor);
+      if (evaluarAlertaHoras(point.horaExtra) === 'verde') break;
+      racha += 1; totalHoras += point.horaExtra;
+      const prev = new Date(cursor + 'T00:00:00Z'); prev.setUTCDate(prev.getUTCDate() - 7);
+      cursor = prev.toISOString().slice(0, 10);
+    }
+    if (racha > 0) {
+      const ultimaSemana = byKey.get(lastWeek);
+      rachas.push({
+        empleadoId: entry.empleadoId, nombre: entry.nombre, sedeName: entry.sedeName, cargo: entry.cargo,
+        racha, horaExtraUltimaSemana: ultimaSemana.horaExtra, nivelUltimaSemana: evaluarAlertaHoras(ultimaSemana.horaExtra),
+        promedioHoraExtra: totalHoras / racha,
+      });
+    }
+  });
+  rachas.sort((a, b) => b.racha - a.racha || b.horaExtraUltimaSemana - a.horaExtraUltimaSemana);
+  return { lastWeek, rachas };
+}
+function renderHorasRachasTable(rows, sedeFilter, tableBodyId){
+  const rachas = computeRachasHorasExtra(rows, sedeFilter).rachas.filter(r => r.racha >= 2);
+  el(tableBodyId).innerHTML = rachas.length ? rachas.map(r => {
+    const cls = r.racha >= RACHA_CONSTANTE_MINIMA ? 'diff-neg' : '';
+    const badge = r.racha >= RACHA_CONSTANTE_MINIMA ? ' <span class="badge-anomalia badge-doble">🔁 Constante</span>' : '';
+    return '<tr class="row-click" data-emp="' + r.empleadoId + '" title="Ver el detalle de esta persona">' +
+      '<td class="left">' + r.nombre + '</td><td class="left">' + r.sedeName + '</td><td class="left">' + (r.cargo || '—') + '</td>' +
+      '<td class="' + cls + '">' + r.racha + badge + '</td><td class="' + (r.nivelUltimaSemana === 'rojo' ? 'diff-neg' : '') + '">' + fmtNum(r.horaExtraUltimaSemana) + '</td><td>' + fmtNum(r.promedioHoraExtra) + '</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="left">Nadie lleva 2+ semanas seguidas en alerta.</td></tr>';
 }
 const TIPOS_HORA_EXTRA = [['he', 'Extra diurna'], ['hen', 'Extra nocturna'], ['hefd', 'Extra festiva diurna'], ['hefn', 'Extra festiva nocturna']];
 const TIPOS_HORA_OTROS = [['hdo', 'Ordinarias diurnas'], ['rn', 'Recargo nocturno'], ['rndyf', 'Recargo nocturno dominical/festivo'], ['dom', 'Dominical'], ['d', 'Descanso'], ['f', 'Festivo'], ['comida', 'Comida']];
@@ -1414,8 +1463,9 @@ function viewHoras(){
     const cls = r.horaExtra > LIMITE_SEMANAL_HORAS && granularity === 'week' ? 'diff-neg' : '';
     return '<tr class="row-click" data-emp="' + r.empleadoId + '" title="Ver el detalle de esta persona"><td class="left">' + r.nombre + '</td><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td class="' + cls + '"><b>' + fmtNum(r.horaExtra) + '</b></td><td>' + fmtNum(r.total) + '</td></tr>';
   }).join('') || '<tr><td colspan="9" class="left">Sin datos para este filtro.</td></tr>';
+  renderHorasRachasTable(scopedAll, sedeFilter, 'horasRachasTableBody');
   horasCtxRows = scopedAll;
-  document.querySelectorAll('#horasAlertasTableBody tr[data-emp], #horasTableBody tr[data-emp]').forEach(tr => {
+  document.querySelectorAll('#horasAlertasTableBody tr[data-emp], #horasRachasTableBody tr[data-emp], #horasTableBody tr[data-emp]').forEach(tr => {
     tr.addEventListener('click', () => { horasEmpleadoSel = tr.dataset.emp; renderHorasEmpleadoDetalle(); });
   });
   renderHorasEmpleadoDetalle();

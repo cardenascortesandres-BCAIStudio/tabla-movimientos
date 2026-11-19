@@ -501,6 +501,17 @@
             </div>
           </div>
 
+          <div class="dash-table-wrap">
+            <div class="dash-table-title">🔁 Constantes — en alerta varias semanas seguidas</div>
+            <p class="hint">A diferencia de "Alertas" (solo la última semana), esto cuenta cuántas semanas SEGUIDAS lleva cada persona por encima del umbral (≥10h/semana) — para detectar un patrón, no solo un pico puntual.</p>
+            <div class="table-scroll">
+              <table class="dash-table">
+                <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Semanas seguidas</th><th>Última semana</th><th>Promedio semanal</th></tr></thead>
+                <tbody id="horasRachasTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="dash-charts" id="chartHorasSedesWrap">
             <div class="chart-box" style="grid-column:1/-1"><canvas id="chartHorasSedes"></canvas></div>
           </div>
@@ -665,6 +676,17 @@
             <table class="dash-table">
               <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Horas extra (semana)</th><th>Estado</th></tr></thead>
               <tbody id="horasPlantaAlertasTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-table-wrap">
+          <div class="dash-table-title">🔁 Constantes — en alerta varias semanas seguidas</div>
+          <p class="hint">A diferencia de "Alertas" (solo la última semana), esto cuenta cuántas semanas SEGUIDAS lleva cada persona por encima del umbral (≥10h/semana) — para detectar un patrón, no solo un pico puntual.</p>
+          <div class="table-scroll">
+            <table class="dash-table">
+              <thead><tr><th class="left">Empleado</th><th class="left">Sede</th><th class="left">Cargo</th><th>Semanas seguidas</th><th>Última semana</th><th>Promedio semanal</th></tr></thead>
+              <tbody id="horasPlantaRachasTableBody"></tbody>
             </table>
           </div>
         </div>
