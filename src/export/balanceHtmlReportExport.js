@@ -635,11 +635,15 @@ function computeRachasHorasExtra(rawHoras, sedeFilter){
   return { lastWeek, rachas };
 }
 function renderHorasRachasTable(rows, sedeFilter, tableBodyId){
-  const rachas = computeRachasHorasExtra(rows, sedeFilter).rachas.filter(r => r.racha >= 2);
+  const rachasData = computeRachasHorasExtra(rows, sedeFilter);
+  const lastWeek = rachasData.lastWeek;
+  const rachas = rachasData.rachas.filter(r => r.racha >= 2);
   el(tableBodyId).innerHTML = rachas.length ? rachas.map(r => {
     const cls = r.racha >= RACHA_CONSTANTE_MINIMA ? 'diff-neg' : '';
     const badge = r.racha >= RACHA_CONSTANTE_MINIMA ? ' <span class="badge-anomalia badge-doble">🔁 Constante</span>' : '';
-    return '<tr class="row-click" data-emp="' + r.empleadoId + '" title="Ver el detalle de esta persona">' +
+    const desde = new Date(lastWeek + 'T00:00:00Z'); desde.setUTCDate(desde.getUTCDate() - (r.racha - 1) * 7);
+    const periodoDesde = desde.toISOString().slice(0, 10);
+    return '<tr class="row-click" data-emp="' + r.empleadoId + '" data-period-desde="' + periodoDesde + '" data-period-hasta="' + lastWeek + '" data-period-gran="week" title="Ver el detalle de esta persona">' +
       '<td class="left">' + r.nombre + '</td><td class="left">' + r.sedeName + '</td><td class="left">' + (r.cargo || '—') + '</td>' +
       '<td class="' + cls + '">' + r.racha + badge + '</td><td class="' + (r.nivelUltimaSemana === 'rojo' ? 'diff-neg' : '') + '">' + fmtNum(r.horaExtraUltimaSemana) + '</td><td>' + fmtNum(r.promedioHoraExtra) + '</td></tr>';
   }).join('') : '<tr><td colspan="6" class="left">Nadie lleva 2+ semanas seguidas en alerta.</td></tr>';
@@ -1418,7 +1422,7 @@ function viewHoras(){
   el('horasAlertasTableBody').innerHTML = alertas.filter(a => a.nivel !== 'verde').map(a => {
     const icon = a.nivel === 'rojo' ? '🔴 Pasado' : '🟡 Por pasarse';
     const cls = a.nivel === 'rojo' ? 'diff-neg' : '';
-    return '<tr class="row-click" data-emp="' + a.empleadoId + '" title="Ver el detalle de esta persona"><td class="left">' + a.nombre + '</td><td class="left">' + a.sedeName + '</td><td class="left">' + (a.cargo || '—') + '</td><td class="' + cls + '">' + fmtNum(a.horaExtraSemana) + '</td><td>' + icon + '</td></tr>';
+    return '<tr class="row-click" data-emp="' + a.empleadoId + '" data-period-desde="' + (lastWeek || '') + '" data-period-hasta="' + (lastWeek || '') + '" data-period-gran="week" title="Ver el detalle de esta persona"><td class="left">' + a.nombre + '</td><td class="left">' + a.sedeName + '</td><td class="left">' + (a.cargo || '—') + '</td><td class="' + cls + '">' + fmtNum(a.horaExtraSemana) + '</td><td>' + icon + '</td></tr>';
   }).join('') || '<tr><td colspan="5" class="left">Nadie en alerta en ' + (lastWeekLabel ? 'la ' + lastWeekLabel : 'la última semana con datos') + '.</td></tr>';
 
   // "Acumulado por sede" (cada punto) — con una sola sede filtrada repite el
@@ -1452,7 +1456,7 @@ function viewHoras(){
   const rankLabels = top.map(e => e.nombre), rankValues = top.map(e => e.horaExtra);
   charts.horasRanking = new Chart(el('chartHorasRanking').getContext('2d'), {
     type: 'bar', data: { labels: rankLabels, datasets: [{ data: rankValues, backgroundColor: rankValues.map(() => currentAccent()), borderRadius: 6 }] },
-    options: Object.assign(chartOptions(['Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'y'), { onClick: (evt, els) => { if (els.length) { horasEmpleadoSel = top[els[0].index].empleadoId; renderHorasEmpleadoDetalle(); } } })
+    options: Object.assign(chartOptions(['Ranking de horas extra por empleado' + (sedeFilter ? ' — ' + sedeFilter : ''), 'Informe con corte a ' + corte], 'y'), { onClick: (evt, els) => { if (els.length) { horasEmpleadoSel = top[els[0].index].empleadoId; horasEmpleadoPeriodoDesde = horasEmpleadoPeriodoHasta = horasEmpleadoPeriodoGran = null; renderHorasEmpleadoDetalle(); } } })
   });
 
   const empData = aggregateHorasByEmpleado(rows, granularity);
@@ -1461,22 +1465,43 @@ function viewHoras(){
   detalleRows.sort((a, b) => a.periodKey < b.periodKey ? 1 : -1);
   el('horasTableBody').innerHTML = detalleRows.map(r => {
     const cls = r.horaExtra > LIMITE_SEMANAL_HORAS && granularity === 'week' ? 'diff-neg' : '';
-    return '<tr class="row-click" data-emp="' + r.empleadoId + '" title="Ver el detalle de esta persona"><td class="left">' + r.nombre + '</td><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td class="' + cls + '"><b>' + fmtNum(r.horaExtra) + '</b></td><td>' + fmtNum(r.total) + '</td></tr>';
+    return '<tr class="row-click" data-emp="' + r.empleadoId + '" data-period-desde="' + r.periodKey + '" data-period-hasta="' + r.periodKey + '" data-period-gran="' + granularity + '" title="Ver el detalle de esta persona"><td class="left">' + r.nombre + '</td><td class="left">' + r.sedeName + '</td><td class="left">' + r.periodLabel + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td class="' + cls + '"><b>' + fmtNum(r.horaExtra) + '</b></td><td>' + fmtNum(r.total) + '</td></tr>';
   }).join('') || '<tr><td colspan="9" class="left">Sin datos para este filtro.</td></tr>';
   renderHorasRachasTable(scopedAll, sedeFilter, 'horasRachasTableBody');
   horasCtxRows = scopedAll;
   document.querySelectorAll('#horasAlertasTableBody tr[data-emp], #horasRachasTableBody tr[data-emp], #horasTableBody tr[data-emp]').forEach(tr => {
-    tr.addEventListener('click', () => { horasEmpleadoSel = tr.dataset.emp; renderHorasEmpleadoDetalle(); });
+    tr.addEventListener('click', () => {
+      horasEmpleadoSel = tr.dataset.emp;
+      horasEmpleadoPeriodoDesde = tr.dataset.periodDesde || null;
+      horasEmpleadoPeriodoHasta = tr.dataset.periodHasta || null;
+      horasEmpleadoPeriodoGran = tr.dataset.periodGran || null;
+      renderHorasEmpleadoDetalle();
+    });
   });
   renderHorasEmpleadoDetalle();
 }
 
 // Clic en una persona: a qué corresponde cada hora (diurna, nocturna, festiva...)
 // dentro de las fechas elegidas — mismo desglose que el dashboard en pantalla.
+// horasEmpleadoPeriodo* (opcional): acota el detalle al rango exacto de la
+// fila en la que se hizo clic (ver la misma lógica en src/main.js), en vez de
+// mostrar todo el historial de la persona.
 let horasEmpleadoSel = null, horasCtxRows = [];
+let horasEmpleadoPeriodoDesde = null, horasEmpleadoPeriodoHasta = null, horasEmpleadoPeriodoGran = null;
+function horasPeriodoRangoLabel(desde, hasta, gran){
+  if (!gran || !desde || !hasta) return '';
+  const a = periodLabel(desde, gran);
+  return desde === hasta ? a : (a + ' a ' + periodLabel(hasta, gran));
+}
 function renderHorasEmpleadoDetalle(){
   const box = el('horasEmpleadoDetalle');
-  const rows = horasEmpleadoSel ? horasCtxRows.filter(r => r.empleadoId === horasEmpleadoSel) : [];
+  let rows = horasEmpleadoSel ? horasCtxRows.filter(r => r.empleadoId === horasEmpleadoSel) : [];
+  if (rows.length && horasEmpleadoPeriodoGran && horasEmpleadoPeriodoDesde && horasEmpleadoPeriodoHasta) {
+    rows = rows.filter(r => {
+      const k = ventaPeriodKeyFor(r.fecha, horasEmpleadoPeriodoGran);
+      return k >= horasEmpleadoPeriodoDesde && k <= horasEmpleadoPeriodoHasta;
+    });
+  }
   if (!rows.length) { box.classList.add('hidden-block'); return; }
   const last = rows.reduce((m, r) => (r.fecha > m.fecha ? r : m), rows[0]);
   const t = sumDesgloseHoras(rows);
@@ -1493,14 +1518,15 @@ function renderHorasEmpleadoDetalle(){
     const rowCls = [anom.turnoDoble ? 'anomalia-doble' : '', anom.horaNocturna ? 'anomalia-nocturna' : ''].filter(Boolean).join(' ');
     return '<tr class="' + rowCls + '"><td class="left">' + nomDia[d.getUTCDay()] + ' ' + String(r.fecha).slice(0, 10) + badges + '</td>' + marcacionCell(r.entrada1) + marcacionCell(r.salida1) + '<td>' + (r.entrada2 || '—') + '</td><td>' + (r.salida2 || '—') + '</td>' + extraCell(r.entrada3) + extraCell(r.salida3) + extraCell(r.entrada4) + extraCell(r.salida4) + '<td>' + fmtNum(r.total) + '</td><td>' + fmtNum(r.he) + '</td><td>' + fmtNum(r.hen) + '</td><td>' + fmtNum(r.hefd) + '</td><td>' + fmtNum(r.hefn) + '</td><td><b>' + fmtNum(horaExtraDelDia(r)) + '</b></td><td class="left">' + estado + '</td></tr>';
   }).join('');
-  box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b>Detalle de ' + last.empleadoNombre + ' — ' + last.sedeName + (last.cargo ? ' · ' + last.cargo : '') + '</b><button type="button" class="theme-btn" id="horasEmpleadoCerrar">✕ Cerrar</button></div>' +
+  const rangoLabel = horasPeriodoRangoLabel(horasEmpleadoPeriodoDesde, horasEmpleadoPeriodoHasta, horasEmpleadoPeriodoGran);
+  box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b>Detalle de ' + last.empleadoNombre + ' — ' + last.sedeName + (last.cargo ? ' · ' + last.cargo : '') + (rangoLabel ? ' · ' + rangoLabel : '') + '</b><button type="button" class="theme-btn" id="horasEmpleadoCerrar">✕ Cerrar</button></div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;">' +
     '<table class="dtable"><thead><tr><th class="left">Hora extra</th><th>Total</th></tr></thead><tbody>' + TIPOS_HORA_EXTRA.map(fila).join('') + '<tr><td class="left"><b>Total general horas extra</b></td><td><b>' + fmtNum(t.extra) + '</b></td></tr></tbody></table>' +
     '<table class="dtable"><thead><tr><th class="left">Otras horas del documento</th><th>Total</th></tr></thead><tbody>' + TIPOS_HORA_OTROS.map(fila).join('') + '<tr><td class="left"><b>Total trabajado</b></td><td><b>' + fmtNum(t.total) + '</b></td></tr></tbody></table></div>' +
     '<div class="dash-table-legend"><span class="badge-anomalia badge-doble">🔁 2º turno</span> día con más de un turno marcado · <span class="badge-anomalia badge-nocturna">🌙 Nocturna</span> generó hora extra nocturna</div>' +
     '<table class="dtable"><thead><tr><th class="left">Día</th><th>Entrada 1</th><th>Salida 1</th><th>Entrada 2</th><th>Salida 2</th><th>Entrada 3</th><th>Salida 3</th><th>Entrada 4</th><th>Salida 4</th><th>Total trabajado</th><th>Extra diurna</th><th>Extra nocturna</th><th>Extra festiva diurna</th><th>Extra festiva nocturna</th><th>Total extra del día</th><th class="left">Estado</th></tr></thead><tbody>' + dias + '</tbody></table>';
   box.classList.remove('hidden-block');
-  el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; renderHorasEmpleadoDetalle(); });
+  el('horasEmpleadoCerrar').addEventListener('click', () => { horasEmpleadoSel = null; horasEmpleadoPeriodoDesde = horasEmpleadoPeriodoHasta = horasEmpleadoPeriodoGran = null; renderHorasEmpleadoDetalle(); });
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
