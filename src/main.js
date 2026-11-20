@@ -3231,12 +3231,17 @@ async function loadUsuariosReportesData() {
   }
 }
 
+const USER_ROLE_LABELS = { full: 'Acceso total', planta: 'Horas Extras Planta', gestionh: 'Horas Extras (Gestión Humana)', admin: 'Administrador' };
 function renderUsuariosTable(users) {
-  const ROLE_LABELS = { full: 'Acceso total', planta: 'Horas Extras Planta', gestionh: 'Horas Extras (Gestión Humana)' };
   el('usuariosTableBody').innerHTML = users.map(u => {
     const estado = u.online ? '🟢 En línea' : '⚫ Desconectado';
-    return `<tr><td>${escapeHtml(u.username)}</td><td>${escapeHtml(u.displayName)}</td><td>${escapeHtml(ROLE_LABELS[u.role] || u.role)}</td><td>${estado}</td><td>${u.lastLoginAt ? escapeHtml(new Date(u.lastLoginAt).toLocaleString('es-CO')) : 'nunca'}</td><td>${escapeHtml(formatRelativeTime(u.lastSeenAt))}</td></tr>`;
-  }).join('') || '<tr><td colspan="6" class="hint">Sin usuarios.</td></tr>';
+    const uid = 'resetpw_' + u.username.replace(/[^a-z0-9]/gi, '_');
+    return `<tr>
+      <td>${escapeHtml(u.username)}</td><td>${escapeHtml(u.displayName)}</td><td>${escapeHtml(USER_ROLE_LABELS[u.role] || u.role)}</td><td>${estado}</td>
+      <td>${u.lastLoginAt ? escapeHtml(new Date(u.lastLoginAt).toLocaleString('es-CO')) : 'nunca'}</td><td>${escapeHtml(formatRelativeTime(u.lastSeenAt))}</td>
+      <td><input type="password" id="${uid}" placeholder="Clave nueva" autocomplete="new-password" style="width:120px"> <button class="btn-tiny" data-reset-user="${escapeHtml(u.username)}" data-reset-uid="${uid}">Cambiar</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="7" class="hint">Sin usuarios.</td></tr>';
 }
 
 // Mientras la pestaña "👥 Usuarios" está abierta, se refresca sola cada 20s
@@ -3286,6 +3291,73 @@ async function handleChangePasswordSubmit() {
     okBanner.classList.remove('hidden-block');
   } catch (err) {
     errBanner.textContent = '⚠ ' + (err.message || 'No se pudo cambiar la clave.');
+    errBanner.classList.remove('hidden-block');
+  } finally {
+    btn.disabled = false; btn.textContent = originalText;
+  }
+}
+
+// Cambiarle la clave a CUALQUIER usuario ya existente — a pedido explícito
+// del usuario ("que yo pueda... cambiar la contraseña de los que ya
+// existen... para no depender de ti"). El servidor también exige 'admin'.
+async function handleResetUserPasswordClick(e) {
+  const btn = e.target.closest('button[data-reset-user]');
+  if (!btn) return;
+  const errBanner = el('resetPwErrorBanner'), okBanner = el('resetPwSuccessBanner');
+  errBanner.classList.add('hidden-block'); okBanner.classList.add('hidden-block');
+  const input = el(btn.dataset.resetUid);
+  const newPassword = input.value;
+  if (!newPassword || newPassword.length < 8) {
+    errBanner.textContent = '⚠ La clave nueva debe tener al menos 8 caracteres.';
+    errBanner.classList.remove('hidden-block');
+    return;
+  }
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Cambiando…';
+  try {
+    await authClient.resetUserPassword(btn.dataset.resetUser, newPassword);
+    input.value = '';
+    okBanner.textContent = `✓ Clave de "${btn.dataset.resetUser}" cambiada.`;
+    okBanner.classList.remove('hidden-block');
+  } catch (err) {
+    errBanner.textContent = '⚠ ' + (err.message || 'No se pudo cambiar la clave.');
+    errBanner.classList.remove('hidden-block');
+  } finally {
+    btn.disabled = false; btn.textContent = originalText;
+  }
+}
+
+// Crear usuario nuevo — a pedido explícito del usuario ("que yo pueda crear
+// nuevos usuarios con contraseñas... para no depender de ti"). El servidor
+// también exige 'admin'.
+async function handleCreateUserSubmit() {
+  const username = el('newUserUsernameInput').value.trim();
+  const displayName = el('newUserDisplayNameInput').value.trim();
+  const password = el('newUserPasswordInput').value;
+  const role = el('newUserRoleSelect').value;
+  const errBanner = el('newUserErrorBanner'), okBanner = el('newUserSuccessBanner');
+  errBanner.classList.add('hidden-block'); okBanner.classList.add('hidden-block');
+  if (!username || !displayName || !password) {
+    errBanner.textContent = '⚠ Completa usuario, nombre y clave.';
+    errBanner.classList.remove('hidden-block');
+    return;
+  }
+  if (password.length < 8) {
+    errBanner.textContent = '⚠ La clave debe tener al menos 8 caracteres.';
+    errBanner.classList.remove('hidden-block');
+    return;
+  }
+  const btn = el('newUserSubmitBtn');
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Creando…';
+  try {
+    await authClient.createUser(username, displayName, password, role);
+    el('newUserUsernameInput').value = ''; el('newUserDisplayNameInput').value = ''; el('newUserPasswordInput').value = '';
+    okBanner.textContent = `✓ Usuario "${username}" creado — ya puede iniciar sesión.`;
+    okBanner.classList.remove('hidden-block');
+    await loadUsuariosReportesData();
+  } catch (err) {
+    errBanner.textContent = '⚠ ' + (err.message || 'No se pudo crear el usuario.');
     errBanner.classList.remove('hidden-block');
   } finally {
     btn.disabled = false; btn.textContent = originalText;
@@ -3364,6 +3436,8 @@ el('reportesTypeBalanceBtn').addEventListener('click', () => switchReportesType(
 el('reportesTypeHorasPlantaBtn').addEventListener('click', () => switchReportesType('horasPlanta'));
 el('reportesTypeUsuariosBtn').addEventListener('click', () => switchReportesType('usuarios'));
 el('changePwSubmitBtn').addEventListener('click', handleChangePasswordSubmit);
+el('newUserSubmitBtn').addEventListener('click', handleCreateUserSubmit);
+el('usuariosTableBody').addEventListener('click', handleResetUserPasswordClick);
 el('reportesTypeMovimientosBtn').addEventListener('click', () => switchReportesType('movimientos'));
 el('reportesTypeAuditoriasBtn').addEventListener('click', () => switchReportesType('auditorias'));
 wireMultiFileDropzone('movDropzone', 'movFileInput', movUploader.handleFiles);

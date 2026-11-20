@@ -4,6 +4,11 @@ import { verifyCredentials, setSessionCookie, clearSessionCookie, getSessionUser
 
 export const authRouter = Router();
 
+// Mismos roles que exige la restricción CHECK de app_users (migración 013)
+// — se valida acá ANTES de llegar a la base de datos para devolver un
+// mensaje claro ("rol inválido") en vez de un error crudo de Postgres.
+const ROLES_VALIDOS = ['full', 'planta', 'admin', 'gestionh'];
+
 authRouter.post('/login', async (req, res, next) => {
   try {
     if (!isDbConfigured()) return res.status(503).json({ error: 'La base de datos no está configurada todavía.' });
@@ -72,6 +77,54 @@ authRouter.post('/change-password', requireAuth, requireAdmin, async (req, res, 
     if (!ok) return res.status(401).json({ error: 'La clave actual no es correcta.' });
     const hash = await hashPassword(newPassword);
     await query('update app_users set password_hash = $1 where username = $2', [hash, req.user.username]);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// Crear usuario — exclusivo del rol 'admin', a pedido explícito del usuario
+// ("quiero poder crear nuevos usuarios con contraseñas... para no depender
+// de ti"): antes solo se podía hacer a mano por SQL directo contra la base
+// de datos. El username se normaliza igual que en el login (minúsculas,
+// sin espacios) para que no se puedan crear 2 cuentas que solo difieran en
+// mayúsculas.
+authRouter.post('/users', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!isDbConfigured()) return res.status(503).json({ error: 'La base de datos no está configurada todavía.' });
+    const { username, displayName, password, role } = req.body || {};
+    if (!username || !displayName || !password || !role) {
+      return res.status(400).json({ error: 'Usuario, nombre, clave y rol son obligatorios.' });
+    }
+    if (String(password).length < 8) return res.status(400).json({ error: 'La clave debe tener al menos 8 caracteres.' });
+    if (!ROLES_VALIDOS.includes(role)) return res.status(400).json({ error: 'Rol inválido.' });
+    const normalizedUsername = String(username).trim().toLowerCase();
+    if (!normalizedUsername) return res.status(400).json({ error: 'Usuario inválido.' });
+    const hash = await hashPassword(password);
+    try {
+      await query(
+        'insert into app_users (username, password_hash, display_name, role) values ($1, $2, $3, $4)',
+        [normalizedUsername, hash, String(displayName).trim(), role]
+      );
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ error: `Ya existe un usuario "${normalizedUsername}".` });
+      throw err;
+    }
+    res.json({ ok: true, username: normalizedUsername });
+  } catch (err) { next(err); }
+});
+
+// Cambiar la clave de CUALQUIER usuario (a diferencia de /change-password,
+// que solo cambia la propia) — exclusivo de 'admin', no exige la clave
+// actual del usuario objetivo (el admin no la conoce ni tiene por qué).
+authRouter.post('/users/:username/reset-password', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    if (!isDbConfigured()) return res.status(503).json({ error: 'La base de datos no está configurada todavía.' });
+    const { newPassword } = req.body || {};
+    if (!newPassword) return res.status(400).json({ error: 'Falta la clave nueva.' });
+    if (String(newPassword).length < 8) return res.status(400).json({ error: 'La clave nueva debe tener al menos 8 caracteres.' });
+    const username = String(req.params.username).trim().toLowerCase();
+    const hash = await hashPassword(newPassword);
+    const { rowCount } = await query('update app_users set password_hash = $1 where username = $2', [hash, username]);
+    if (!rowCount) return res.status(404).json({ error: `No existe el usuario "${username}".` });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

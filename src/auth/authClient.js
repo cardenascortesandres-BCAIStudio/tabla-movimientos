@@ -50,3 +50,20 @@ export function changePassword(currentPassword, newPassword) {
     body: JSON.stringify({ currentPassword, newPassword })
   });
 }
+
+// Crear usuario nuevo y cambiar la clave de CUALQUIER usuario existente —
+// ambas exclusivas de 'admin' (el servidor las filtra igual).
+export function createUser(username, displayName, password, role) {
+  return apiFetch('/api/auth/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, displayName, password, role })
+  });
+}
+export function resetUserPassword(username, newPassword) {
+  return apiFetch(`/api/auth/users/${encodeURIComponent(username)}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newPassword })
+  });
+}

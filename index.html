@@ -761,9 +761,42 @@
       <div class="banner error hidden-block" id="usuariosErrorBanner"></div>
       <div class="table-scroll hidden-block" id="usuariosView">
         <table class="unrec-table">
-          <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th>Última actividad</th></tr></thead>
+          <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th>Última actividad</th><th>Cambiar clave</th></tr></thead>
           <tbody id="usuariosTableBody"></tbody>
         </table>
+      </div>
+      <div class="banner error hidden-block" id="resetPwErrorBanner"></div>
+      <div class="banner info hidden-block" id="resetPwSuccessBanner"></div>
+
+      <div class="balance-block-title" style="margin-top:18px">Crear usuario nuevo</div>
+      <p class="hint">Para no depender de que alguien más lo cree por ti — queda disponible para iniciar sesión de inmediato.</p>
+      <div class="fields">
+        <div class="field">
+          <label>Usuario</label>
+          <input type="text" id="newUserUsernameInput" autocomplete="off" placeholder="ej. maria">
+        </div>
+        <div class="field">
+          <label>Nombre para mostrar</label>
+          <input type="text" id="newUserDisplayNameInput" autocomplete="off" placeholder="ej. María Pérez">
+        </div>
+        <div class="field">
+          <label>Clave</label>
+          <input type="password" id="newUserPasswordInput" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label>Rol</label>
+          <select id="newUserRoleSelect">
+            <option value="full">Acceso total</option>
+            <option value="planta">Horas Extras Planta</option>
+            <option value="gestionh">Horas Extras (Gestión Humana)</option>
+            <option value="admin">Administrador (como tu usuario)</option>
+          </select>
+        </div>
+      </div>
+      <div class="banner error hidden-block" id="newUserErrorBanner"></div>
+      <div class="banner info hidden-block" id="newUserSuccessBanner"></div>
+      <div class="footer-actions">
+        <button class="btn-primary" id="newUserSubmitBtn">Crear usuario</button>
       </div>
 
       <div class="balance-block-title" style="margin-top:18px">Cambiar mi clave</div>
